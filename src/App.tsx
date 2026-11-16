@@ -4,6 +4,7 @@ import { requestPersistentStorage } from './db'
 import { BodyIcon, ClosetIcon, MealsIcon, SettingsIcon, TasksIcon, TodayIcon } from './components/Icons'
 import Today from './pages/Today'
 import Settings from './pages/Settings'
+import Tasks from './pages/Tasks'
 import ComingSoon from './pages/ComingSoon'
 
 const TABS: { route: Route; label: string; Icon: ComponentType<SVGProps<SVGSVGElement>> }[] = [
@@ -30,7 +31,7 @@ function Page({ route }: { route: Route }) {
     case 'settings':
       return <Settings />
     case 'tasks':
-      return <ComingSoon phase={1} what="Your task list" />
+      return <Tasks />
     case 'body':
       return <ComingSoon phase={2} what="Measurements and PRs" />
     case 'meals':
