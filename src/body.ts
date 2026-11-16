@@ -21,7 +21,7 @@ export const MEASUREMENTS: MeasureDef[] = [
   { key: 'stomach', label: 'Stomach', group: 'Jacket & shirt', kind: 'circ', how: 'Around the widest part of the stomach, usually at the navel.' },
   { key: 'bicep', label: 'Bicep', group: 'Jacket & shirt', kind: 'circ', how: 'Around the widest part of the upper arm, relaxed.' },
   { key: 'wrist', label: 'Wrist', group: 'Jacket & shirt', kind: 'circ', how: 'Around the wrist just above the wrist bone.' },
-  { key: 'sleeve', label: 'Sleeve', group: 'Jacket & shirt', kind: 'length', how: 'From the shoulder seam point down the outside of the arm to the wrist bone.' },
+  { key: 'sleeve', label: 'Sleeve', group: 'Jacket & shirt', kind: 'length', how: 'Dress-shirt sleeve: from the center of the back of the neck, across the shoulder and down the outside of a slightly bent arm to the wrist bone.' },
   { key: 'jacketLength', label: 'Jacket length', group: 'Jacket & shirt', kind: 'length', how: 'From the base of the collar at the back down to where you want the jacket hem.' },
   { key: 'waist', label: 'Waist', group: 'Pants', kind: 'circ', how: 'Around where your pants sit, usually just above the hip bones.' },
   { key: 'seat', label: 'Seat', group: 'Pants', kind: 'circ', how: 'Around the fullest part of the hips and seat, feet together.' },

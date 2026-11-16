@@ -221,6 +221,13 @@ export default function BodyFigure({
         ))}
       </g>
 
+      {/* Arm edges over the torso, same weight as the silhouette outline */}
+      <g fill="none" strokeLinecap="round" className="stroke-slate-400" strokeWidth={0.25}>
+        {fig.contours.map((d, i) => (
+          <path key={i} d={d} />
+        ))}
+      </g>
+
       {/* Anatomy lines */}
       <g fill="none" strokeLinecap="round" className="stroke-slate-400/70 dark:stroke-slate-300/40" strokeWidth={0.14}>
         {fig.details.map((d, i) => (

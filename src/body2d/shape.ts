@@ -28,6 +28,7 @@ export type GuideGeom = (RingGuide | PathGuide) & { anchor: P }
 export interface FigureShape {
   parts: string[] // closed silhouette pieces, back to front
   details: string[] // interior anatomy lines
+  contours: string[] // outline-weight edges inside the silhouette (arm over torso)
   ears: { cx: number; cy: number }[]
   navel: P
   guides: Record<string, GuideGeom>
@@ -81,7 +82,9 @@ export function buildFigure(p: BodyParams): FigureShape {
   // ---- Half-widths seen from the front ----
   const neckH = rx(p.neck, 0.92)
   const shH = p.shoulders / 2
-  const chestH = rx(p.chest, 0.68)
+  // Chest circumference wraps around the lats, which sit behind the arms from
+  // the front, so the visible chest is narrower than the ellipse suggests.
+  const chestH = rx(p.chest, 0.68) * 0.87
   const stomachH = rx(p.stomach, 0.74)
   const waistH = rx(p.waist, 0.75)
   const seatH = rx(p.seat, 0.78)
@@ -91,13 +94,15 @@ export function buildFigure(p: BodyParams): FigureShape {
   const calfH = rx(p.thigh * 0.67, 0.95)
   const ankleH = rx(p.thigh * 0.4, 0.9)
   const bicepH = rx(p.bicep, 0.92)
-  const deltH = rx(p.bicep * 1.14, 0.95)
-  const elbowH = rx(p.bicep * 0.82, 0.9)
-  const forearmH = rx(p.bicep * 0.92, 0.85)
-  const wristH = rx(p.wrist, 0.7)
+  const deltH = rx(p.bicep * 1.12, 0.95)
+  const elbowH = rx(p.bicep * 0.76, 0.9)
+  const forearmH = rx(p.bicep * 0.86, 0.85)
+  // Palm faces the thigh, so from the front we see the wrist's thinner side.
+  const wristH = rz(p.wrist, 0.7) * 1.1
 
   const parts: string[] = []
   const details: string[] = []
+  const contours: string[] = []
   const guides: Record<string, GuideGeom> = {}
 
   // ---- Legs: center line drifts from the hip joint toward the ankles ----
@@ -172,7 +177,7 @@ export function buildFigure(p: BodyParams): FigureShape {
   const torsoRight: P[] = [
     [neckH * 0.85, yNeckBase - 0.2],
     [neckH + (shH - neckH) * 0.45, yShoulder - 0.05], // trapezius slope
-    [shH - 0.8, yShoulder - 0.75],
+    [shH - 1.4, yShoulder - 0.25],
     [chestH + 0.45, yArmpit],
     [chestH, yChest],
     [ribsH, (yChest + yStomach) / 2],
@@ -184,84 +189,118 @@ export function buildFigure(p: BodyParams): FigureShape {
   ]
   parts.push(body([[0, yCrotch - 0.8], ...mirror(torsoRight).reverse(), [0, yNeckBase - 0.1], ...torsoRight]))
 
-  // ---- Arms: built along a tilted axis from the shoulder joint ----
-  const L = p.sleeve
-  const tilt = 0.14 // radians outward
-  const deltTop = 1.25
+  // ---- Arms ----
+  // Shirt sleeve is measured from the center back of the neck, so the arm
+  // itself (shoulder point to wrist) is roughly sleeve minus half the shoulders.
+  const A = Math.min(28, Math.max(20, p.sleeve - shH))
+  const U = A * 0.56 // shoulder to elbow
+  const F = A - U // elbow to wrist
+  const tiltU = 0.075 // upper arm hangs almost straight
+  const tiltF = 0.2 // forearm angles out a little more (carrying angle)
   for (const s of [-1, 1]) {
-    const J: P = [s * (shH - 1.05), yShoulder - 1.6]
-    const dir: P = [s * Math.sin(tilt), -Math.cos(tilt)]
-    const nrm: P = [s * Math.cos(tilt), Math.sin(tilt)] // points away from the body
-    const at = (t: number, w: number): P => [J[0] + dir[0] * t + nrm[0] * w, J[1] + dir[1] * t + nrm[1] * w]
+    const J: P = [s * (shH - deltH * 0.72), yShoulder - 1.35]
+    const frame = (origin: P, tilt: number) => {
+      const d: P = [s * Math.sin(tilt), -Math.cos(tilt)]
+      const n: P = [s * Math.cos(tilt), Math.sin(tilt)] // away from the body
+      return (t: number, w: number): P => [origin[0] + d[0] * t + n[0] * w, origin[1] + d[1] * t + n[1] * w]
+    }
+    const up = frame(J, tiltU)
+    const E = up(U, 0)
+    const fo = frame(E, tiltF)
+    const W = fo(F, 0)
+    const hd = frame(W, tiltF - 0.04)
+
+    // Outer contour: deltoid cap, deltoid dip, triceps, elbow, forearm, wrist.
     const outer: P[] = [
-      at(-deltTop + 0.2, deltH * 0.45),
-      at(-0.5, deltH * 0.95),
-      at(1.6, deltH * 1.0),
-      at(4.4, deltH * 0.84),
-      at(L * 0.3, bicepH),
-      at(L * 0.47, elbowH),
-      at(L * 0.58, forearmH * 1.02),
-      at(L * 0.8, (forearmH + wristH) / 2),
-      at(L, wristH),
+      up(-1.2, deltH * 0.15),
+      up(-0.95, deltH * 0.6),
+      up(-0.3, deltH * 0.92),
+      up(0.9, deltH * 1.02),
+      up(2.6, deltH * 0.97),
+      up(U * 0.43, bicepH * 0.86), // deltoid insertion
+      up(U * 0.66, bicepH * 0.95), // triceps
+      up(U * 0.92, elbowH * 1.05),
+      fo(0.2, elbowH * 1.02),
+      fo(F * 0.2, forearmH * 1.06), // brachioradialis
+      fo(F * 0.48, forearmH * 0.92),
+      fo(F * 0.8, (forearmH + wristH) / 2 * 0.92),
+      fo(F, wristH),
     ]
-    // Hand: seen edge-on (palm toward the thigh), thumb bump forward.
+    // Hand, palm toward the thigh: fingers taper, thumb sits forward.
     const hand: P[] = [
-      at(L + 1.4, wristH * 1.04),
-      at(L + 3.9, wristH * 1.0),
-      at(L + 5.9, wristH * 0.66),
-      at(L + 6.8, 0.1),
-      at(L + 6.4, -wristH * 0.5),
-      at(L + 4.5, -wristH * 0.9),
-      at(L + 2.5, -wristH * 1.16),
-      at(L + 1.1, -wristH * 1.0),
+      hd(0.9, wristH * 1.1),
+      hd(2.9, wristH * 1.22), // back of the hand
+      hd(3.9, wristH * 1.16), // knuckles
+      hd(5.3, wristH * 0.85),
+      hd(6.3, wristH * 0.2),
+      hd(6.45, -wristH * 0.3), // fingertips curl toward the thigh
+      hd(5.9, -wristH * 0.72),
+      hd(4.7, -wristH * 0.98),
+      hd(4.05, -wristH * 1.08),
+      hd(3.2, -wristH * 1.42), // thumb tip
+      hd(1.9, -wristH * 1.38),
+      hd(0.8, -wristH * 1.05),
     ]
+    // Inner contour back up: forearm flexors, inner elbow, biceps, armpit.
     const inner: P[] = [
-      at(L, -wristH),
-      at(L * 0.78, -((forearmH + wristH) / 2) * 0.9),
-      at(L * 0.6, -forearmH * 0.92),
-      at(L * 0.47, -elbowH * 0.95),
-      at(L * 0.3, -bicepH * 0.95),
-      at(3.6, -bicepH * 0.92),
-      at(0.8, -deltH * 0.62),
-      at(-deltTop + 0.4, -deltH * 0.3),
-      at(-deltTop, 0),
+      fo(F, -wristH),
+      fo(F * 0.72, -forearmH * 0.78),
+      fo(F * 0.3, -forearmH * 1.0), // flexor bulge
+      fo(0.4, -elbowH * 0.95),
+      up(U * 0.9, -elbowH * 0.98),
+      up(U * 0.62, -bicepH * 1.03), // biceps
+      up(U * 0.35, -bicepH * 0.93),
+      up(2.2, -deltH * 0.8), // armpit
+      up(0, -deltH * 0.7),
+      up(-1.0, -deltH * 0.3),
     ]
     parts.push(body([...outer, ...hand, ...inner]))
 
-    // Arm details: deltoid edge, armpit crease, elbow crease.
-    details.push(body([at(0.1, -deltH * 0.35), at(2.4, deltH * 0.05), at(4.8, deltH * 0.72)], false))
-    details.push(body([at(1.2, -deltH * 0.6), at(3.4, -bicepH * 0.93)], false))
-    details.push(body([at(L * 0.45, -elbowH * 0.5), at(L * 0.47, -elbowH * 0.1)], false))
-    details.push(body([at(L + 2.7, -wristH * 1.05), at(L + 3.8, -wristH * 0.6)], false))
+    // Edge of the arm where it lies in front of the torso.
+    contours.push(body([up(2.6, -deltH * 0.78), up(U * 0.35, -bicepH * 0.93), up(U * 0.62, -bicepH * 1.03), up(U * 0.9, -elbowH * 0.98)], false))
+
+    // Anatomy: front border of the deltoid, biceps groove, elbow crease, thumb.
+    details.push(body([up(-0.9, -deltH * 0.45), up(1.4, -deltH * 0.05), up(U * 0.43, bicepH * 0.55)], false))
+    details.push(body([fo(-0.2, -elbowH * 0.6), fo(0.35, -elbowH * 0.1)], false))
+    // Thumb edge, then the folds between curled fingers.
+    contours.push(body([hd(1.4, -wristH * 0.6), hd(2.6, -wristH * 0.85), hd(3.6, -wristH * 1.15)], false))
+    details.push(body([hd(3.9, wristH * 0.55), hd(4.6, wristH * 0.1), hd(5.2, -wristH * 0.4)], false))
+    details.push(body([hd(4.7, wristH * 0.7), hd(5.35, wristH * 0.2), hd(5.8, -wristH * 0.35)], false))
 
     if (s === 1) {
       // Right arm (viewer's right) carries the arm guides.
-      const rot = (-s * tilt * 180) / Math.PI
-      const bc = sv(at(L * 0.3, 0))
+      const bc = sv(up(U * 0.58, 0))
       guides.bicep = {
         kind: 'ring',
         cx: bc[0],
         cy: bc[1],
         rx: bicepH + 0.25,
         ry: rz(p.bicep, 0.92) * 0.3,
-        rot,
-        anchor: sv(at(L * 0.3, bicepH + 0.3)),
+        rot: (-s * tiltU * 180) / Math.PI,
+        anchor: sv(up(U * 0.58, bicepH + 0.3)),
       }
-      const wc = sv(at(L - 0.4, 0))
+      const wc = sv(fo(F - 0.5, 0))
       guides.wrist = {
         kind: 'ring',
         cx: wc[0],
         cy: wc[1],
         rx: wristH + 0.22,
         ry: rz(p.wrist, 0.7) * 0.35,
-        rot,
-        anchor: sv(at(L - 0.4, wristH + 0.3)),
+        rot: (-s * tiltF * 180) / Math.PI,
+        anchor: sv(fo(F - 0.5, wristH + 0.3)),
       }
-      const sleevePts = [-0.9, L * 0.15, L * 0.3, L * 0.47, L * 0.65, L * 0.85, L].map((t) => {
-        const w = t < 2 ? deltH : t < L * 0.4 ? bicepH * 1.05 : t < L * 0.55 ? elbowH : (forearmH + wristH) / 2
-        return sv(at(t, w + 0.7))
-      })
-      guides.sleeve = { kind: 'path', pts: sleevePts, ticks: true, anchor: sleevePts[3] }
+      // Sleeve: center back of the neck, over the shoulder, down the outside of the arm.
+      const sleevePts: P[] = [
+        sv([0, yNeckBase + 0.3]),
+        sv([shH * 0.55, yShoulder + 0.45]),
+        sv(up(-1.2, deltH * 0.75)),
+        sv(up(1.2, deltH * 1.02 + 0.6)),
+        sv(up(U * 0.5, bicepH * 0.95 + 0.6)),
+        sv(up(U, elbowH * 1.05 + 0.6)),
+        sv(fo(F * 0.4, forearmH * 0.98 + 0.6)),
+        sv(fo(F, wristH + 0.6)),
+      ]
+      guides.sleeve = { kind: 'path', pts: sleevePts, ticks: true, anchor: sleevePts[5] }
     }
   }
 
@@ -393,6 +432,7 @@ export function buildFigure(p: BodyParams): FigureShape {
   return {
     parts,
     details,
+    contours,
     ears,
     navel: sv([0, yStomach - 0.2]),
     guides,
