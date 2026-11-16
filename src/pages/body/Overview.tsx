@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Measurement } from '../../db'
 import { todayISO, friendlyDate } from '../../dates'
@@ -18,9 +18,6 @@ import {
 import BodyFigure from '../../components/BodyFigure'
 import LineChart from '../../components/LineChart'
 import Sheet from '../../components/Sheet'
-
-// three.js is large, so the 3D model loads only when the Body tab opens.
-const Body3D = lazy(() => import('../../body3d/Body3D'))
 
 function QuickStart() {
   const [vals, setVals] = useState({ weight: '', squat: '', bench: '', pullups: '' })
@@ -199,7 +196,6 @@ export default function Overview() {
   )
   const [pickedIdx, setViewIdx] = useState<number | null>(null)
   const [compare, setCompare] = useState(false)
-  const [use3D, setUse3D] = useState(true)
   const viewIdx = pickedIdx === null || pickedIdx >= dates.length ? dates.length - 1 : pickedIdx
   const snapshot = useMemo(
     () => (viewIdx < 0 ? latest : latestByMetric(all.filter((r) => r.date <= dates[viewIdx]))),
@@ -296,26 +292,19 @@ export default function Overview() {
             Update all
           </button>
         </div>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Tap a ring on the model or a row below.</p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Tap a tape line on the figure or a row below.</p>
 
         <div className="mt-3">
-          {use3D ? (
-            <Suspense fallback={<div className="h-[440px] animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />}>
-              <Body3D
-                values={snapshotValues}
-                ghostValues={compare && dates.length > 1 ? (atLatest ? firstValues : latestValues) : null}
-                selected={selected}
-                onSelect={setSelected}
-                label={{
-                  title: MEASURE_BY_KEY[selected].label,
-                  value: snapshot[selected] ? `${fmtNum(snapshot[selected].value, 2)}″` : 'not measured',
-                }}
-                onFallback={() => setUse3D(false)}
-              />
-            </Suspense>
-          ) : (
-            <BodyFigure selected={selected} onSelect={setSelected} latest={snapshot} />
-          )}
+          <BodyFigure
+            values={snapshotValues}
+            ghostValues={compare && dates.length > 1 ? (atLatest ? firstValues : latestValues) : null}
+            selected={selected}
+            onSelect={setSelected}
+            label={{
+              title: MEASURE_BY_KEY[selected].label,
+              value: snapshot[selected] ? `${fmtNum(snapshot[selected].value, 2)}″` : '—',
+            }}
+          />
         </div>
 
         {dates.length > 1 && (
@@ -326,7 +315,8 @@ export default function Overview() {
               </span>
               <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                 <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} className="accent-indigo-600" />
-                Ghost of {friendlyDate(atLatest ? dates[0] : dates[dates.length - 1])}
+                <span className="inline-block h-0.5 w-3 rounded bg-orange-500" aria-hidden="true" />
+                Outline of {friendlyDate(atLatest ? dates[0] : dates[dates.length - 1])}
               </label>
             </div>
             <input
