@@ -22,15 +22,50 @@ export interface Task {
   completedAt?: number
 }
 
+/** Body weight (lbs) or a tape measurement (inches), one row per value per date. */
+export interface Measurement {
+  id: number
+  metric: string // 'weight' or a key from MEASUREMENTS in body.ts
+  date: string // YYYY-MM-DD
+  value: number
+  createdAt: number
+}
+
+/** Squat / bench in lbs, pull-ups in reps. */
+export interface LiftEntry {
+  id: number
+  lift: 'squat' | 'bench' | 'pullups'
+  date: string
+  value: number
+  createdAt: number
+}
+
+export interface Run {
+  id: number
+  date: string
+  distanceMi: number
+  durationSec: number
+  notes?: string
+  createdAt: number
+}
+
 export class LedgerDB extends Dexie {
   settings!: EntityTable<Setting, 'key'>
   tasks!: EntityTable<Task, 'id'>
+  measurements!: EntityTable<Measurement, 'id'>
+  lifts!: EntityTable<LiftEntry, 'id'>
+  runs!: EntityTable<Run, 'id'>
 
   constructor() {
     super('ledger')
     this.version(1).stores({
       settings: 'key',
       tasks: '++id, done, dueDate, priority, category, createdAt',
+    })
+    this.version(2).stores({
+      measurements: '++id, metric, date, [metric+date]',
+      lifts: '++id, lift, date, [lift+date]',
+      runs: '++id, date',
     })
   }
 }
