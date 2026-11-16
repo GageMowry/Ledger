@@ -13,6 +13,11 @@ import {
   saveStaples,
   saveTargets,
   saveTimeLimit,
+  saveEquipment,
+  getEquipment,
+  isCommonEquipment,
+  BASIC_TOOLS,
+  type Equipment,
   type FoodPrefs,
   type MealInput,
   type NutritionTargets,
@@ -44,6 +49,8 @@ export interface ListUpdates {
   removeAllergies?: string[]
   addStaples?: string[]
   removeStaples?: string[]
+  addEquipment?: string[]
+  removeEquipment?: string[]
   // Settings the Meal Maker may change when asked.
   timeLimitMin?: number | null // > 0 sets and turns on the limit; 0 turns it off
   notes?: string | null // full replacement for "Other notes"
@@ -156,6 +163,8 @@ export const REPLY_SCHEMA = {
         removeAllergies: STR_LIST,
         addStaples: STR_LIST,
         removeStaples: STR_LIST,
+        addEquipment: { ...STR_LIST, description: 'Kitchen tools/appliances the user says they have, lowercase (e.g. "air fryer")' },
+        removeEquipment: { ...STR_LIST, description: 'Kitchen tools/appliances the user says they no longer have' },
         timeLimitMin: {
           ...INT,
           nullable: true,
@@ -196,6 +205,8 @@ export function buildSystemPrompt(d: MealsData): string {
   return `You are the Meal Maker in a personal app. You help one person (a 5'10" man) decide what to cook and you write clear, reliable recipes.
 
 KITCHEN STAPLES (always on hand): ${list(d.staples)}
+KITCHEN EQUIPMENT AVAILABLE: ${list(d.equipment.have)}; plus basics: ${BASIC_TOOLS}.
+EQUIPMENT RULE: only use cooking methods and tools from that equipment list and the basics. If something they don't have would help (e.g. no air fryer, no blender), adapt the method to what they do have. If a request truly needs missing equipment, say so in "reply" and offer an alternative.
 LIKES: ${list(d.prefs.likes)}
 DISLIKES (avoid unless asked): ${list(d.prefs.dislikes)}
 ALLERGIES / NEVER (must never appear in a recipe): ${list(d.prefs.avoid)}
@@ -220,7 +231,7 @@ Settings skill:
 - Only change these when the user asks or clearly confirms, and say what you changed in "reply". If they ask for a target without a number (e.g. "set my calories for a cut"), suggest a number and ask them to confirm before setting it.
 
 Preference skill:
-- When the user states a like, dislike, allergy, or something they always keep or ran out of, record it in "updates" (addLikes, addDislikes, addAllergies, addStaples, removeStaples, etc.). Use short lowercase food names. Don't repeat items already on a list.
+- When the user states a like, dislike, allergy, something they always keep or ran out of, or a kitchen tool they got or no longer have, record it in "updates" (addLikes, addDislikes, addAllergies, addStaples, removeStaples, addEquipment, removeEquipment, etc.). Use short lowercase food names. Don't repeat items already on a list.
 - If the user asks you to build out or fill in their preferences, interview them: ask 2-4 quick, specific questions per turn (proteins, vegetables, cuisines, spice level, textures, allergies, what's always in the kitchen), and record their answers in "updates" on the next turn. Keep going until they say stop.
 - Never add something the user didn't say or confirm.`
 }
@@ -303,6 +314,18 @@ export async function applyUpdates(u: ListUpdates | null | undefined): Promise<L
   if (sa.length) applied.addStaples = sa
   if (sr.length) applied.removeStaples = sr
 
+  // ---- Equipment ----
+  const eq = await getEquipment()
+  const lower = (xs: string[]) => xs.map((x) => x.trim().toLowerCase()).filter(Boolean)
+  const eqAdd = lower(u.addEquipment ?? []).filter((x) => !eq.have.some((h) => h.toLowerCase() === x))
+  const eqRemove = lower(u.removeEquipment ?? []).filter((x) => eq.have.some((h) => h.toLowerCase() === x))
+  if (eqAdd.length) applied.addEquipment = eqAdd
+  if (eqRemove.length) applied.removeEquipment = eqRemove
+  const nextEquipment: Equipment = {
+    custom: addTo(eq.custom, eqAdd.filter((x) => !isCommonEquipment(x))),
+    have: removeFrom(addTo(eq.have, eqAdd), eqRemove),
+  }
+
   // ---- Settings: time limit, notes, targets ----
   const sc: SettingsChange = {}
   if (typeof u.timeLimitMin === 'number') {
@@ -342,6 +365,7 @@ export async function applyUpdates(u: ListUpdates | null | undefined): Promise<L
   if (!Object.keys(applied).length) return undefined
   await savePrefs(next)
   if (sa.length || sr.length) await saveStaples(nextStaples)
+  if (eqAdd.length || eqRemove.length) await saveEquipment(nextEquipment)
   if (sc.nextTimeLimit) await saveTimeLimit(sc.nextTimeLimit)
   if (sc.nextTargets) await saveTargets(sc.nextTargets)
   return applied
@@ -362,6 +386,8 @@ export async function undoUpdates(a: ListUpdates): Promise<void> {
     removeAllergies: a.addAllergies,
     addStaples: a.removeStaples,
     removeStaples: a.addStaples,
+    addEquipment: a.removeEquipment,
+    removeEquipment: a.addEquipment,
   })
 }
 
@@ -376,6 +402,8 @@ export function describeUpdates(a: ListUpdates): string[] {
   push('Removed from', 'Dislikes', a.removeDislikes)
   push('Removed from', 'Allergies', a.removeAllergies)
   push('Removed from', 'Staples', a.removeStaples)
+  push('Added to', 'Equipment', a.addEquipment)
+  push('Removed from', 'Equipment', a.removeEquipment)
   const sc = a.settingsChange
   if (sc?.nextTimeLimit) {
     out.push(

@@ -28,6 +28,28 @@ export const getPrefs = async (): Promise<FoodPrefs> => ({ ...DEFAULT_PREFS, ...
 export const getTargets = () => getSetting<NutritionTargets>('nutritionTargets', DEFAULT_TARGETS)
 export const getTimeLimit = () => getSetting<TimeLimit>('mealTimeLimit', DEFAULT_TIME)
 export const getStaples = () => getSetting<string[]>('staples', [])
+
+/** Kitchen equipment: a checklist of common items plus anything the user adds. */
+export const COMMON_EQUIPMENT: { group: string; items: string[] }[] = [
+  { group: 'Cooking', items: ['stove', 'oven', 'microwave', 'toaster', 'air fryer', 'toaster oven', 'grill', 'rice cooker', 'slow cooker', 'pressure cooker', 'sous vide'] },
+  { group: 'Prep', items: ['blender', 'food processor', 'stand mixer', 'hand mixer', 'cheese grater', 'immersion blender', 'mandoline', 'kitchen scale', 'meat thermometer'] },
+  { group: 'Pans & bakeware', items: ['cast iron skillet', 'dutch oven', 'wok', 'muffin tin', 'casserole dish', 'waffle maker'] },
+]
+export const DEFAULT_EQUIPMENT = ['microwave', 'oven', 'stove', 'toaster']
+/** Assumed in every kitchen, so they aren't on the checklist. */
+export const BASIC_TOOLS = 'knives, cutting board, mixing bowls, measuring cups and spoons, spatula, a pot, a skillet, a baking sheet'
+
+export interface Equipment {
+  have: string[] // what's available
+  custom: string[] // user-added items not on the common list
+}
+export const getEquipment = async (): Promise<Equipment> => {
+  const e = await getSetting<Equipment | null>('equipment', null)
+  return e ?? { have: [...DEFAULT_EQUIPMENT], custom: [] }
+}
+export const saveEquipment = (e: Equipment) => setSetting('equipment', e)
+export const isCommonEquipment = (name: string) =>
+  COMMON_EQUIPMENT.some((g) => g.items.some((i) => i.toLowerCase() === name.trim().toLowerCase()))
 export const savePrefs = (p: FoodPrefs) => setSetting('foodPrefs', p)
 export const saveTargets = (t: NutritionTargets) => setSetting('nutritionTargets', t)
 export const saveTimeLimit = (t: TimeLimit) => setSetting('mealTimeLimit', t)
