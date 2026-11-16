@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useMemo, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Measurement } from '../../db'
 import { todayISO, friendlyDate } from '../../dates'
@@ -18,6 +18,9 @@ import {
 import BodyFigure from '../../components/BodyFigure'
 import LineChart from '../../components/LineChart'
 import Sheet from '../../components/Sheet'
+
+// three.js is large, so the 3D model loads only when the Body tab opens.
+const Body3D = lazy(() => import('../../body3d/Body3D'))
 
 function QuickStart() {
   const [vals, setVals] = useState({ weight: '', squat: '', bench: '', pullups: '' })
@@ -188,6 +191,36 @@ export default function Overview() {
   const latest = useMemo(() => latestByMetric(all), [all])
   const weights = useMemo(() => sortByDate(all.filter((r) => r.metric === 'weight')), [all])
   const sizes = suggestedSizes(latest)
+
+  // Timeline: every date with a tape measurement. The model shows the body as of the chosen date.
+  const dates = useMemo(
+    () => [...new Set(all.filter((r) => r.metric !== 'weight').map((r) => r.date))].sort(),
+    [all],
+  )
+  const [pickedIdx, setViewIdx] = useState<number | null>(null)
+  const [compare, setCompare] = useState(false)
+  const [use3D, setUse3D] = useState(true)
+  const viewIdx = pickedIdx === null || pickedIdx >= dates.length ? dates.length - 1 : pickedIdx
+  const snapshot = useMemo(
+    () => (viewIdx < 0 ? latest : latestByMetric(all.filter((r) => r.date <= dates[viewIdx]))),
+    [all, dates, viewIdx, latest],
+  )
+  const snapshotValues = useMemo(
+    () => Object.fromEntries(Object.entries(snapshot).map(([k, m]) => [k, m.value])),
+    [snapshot],
+  )
+  const atLatest = viewIdx === dates.length - 1
+  const latestValues = useMemo(
+    () => Object.fromEntries(Object.entries(latest).map(([k, m]) => [k, m.value])),
+    [latest],
+  )
+  const firstValues = useMemo(
+    () =>
+      dates.length
+        ? Object.fromEntries(Object.entries(latestByMetric(all.filter((r) => r.date <= dates[0]))).map(([k, m]) => [k, m.value]))
+        : {},
+    [all, dates],
+  )
   const curW = weights[weights.length - 1]
   const prevW = weights[weights.length - 2]
 
@@ -263,10 +296,60 @@ export default function Overview() {
             Update all
           </button>
         </div>
-        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Tap a point on the body or a row below.</p>
+        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Tap a ring on the model or a row below.</p>
 
-        <BodyFigure selected={selected} onSelect={setSelected} latest={latest} />
-        <MeasurementDetail key={selected} metric={selected} rows={all} />
+        <div className="mt-3">
+          {use3D ? (
+            <Suspense fallback={<div className="h-[440px] animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800" />}>
+              <Body3D
+                values={snapshotValues}
+                ghostValues={compare && dates.length > 1 ? (atLatest ? firstValues : latestValues) : null}
+                selected={selected}
+                onSelect={setSelected}
+                label={{
+                  title: MEASURE_BY_KEY[selected].label,
+                  value: snapshot[selected] ? `${fmtNum(snapshot[selected].value, 2)}″` : 'not measured',
+                }}
+                onFallback={() => setUse3D(false)}
+              />
+            </Suspense>
+          ) : (
+            <BodyFigure selected={selected} onSelect={setSelected} latest={snapshot} />
+          )}
+        </div>
+
+        {dates.length > 1 && (
+          <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/50">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">
+                {viewIdx === dates.length - 1 ? 'Latest' : 'As of'} · {friendlyDate(dates[viewIdx])}
+              </span>
+              <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} className="accent-indigo-600" />
+                Ghost of {friendlyDate(atLatest ? dates[0] : dates[dates.length - 1])}
+              </label>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={dates.length - 1}
+              step={1}
+              value={viewIdx}
+              onChange={(e) => setViewIdx(Number(e.target.value))}
+              className="mt-2 w-full accent-indigo-600"
+              aria-label="Measurement date"
+            />
+          </div>
+        )}
+        {!Object.keys(snapshot).some((k) => k !== 'weight') && (
+          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+            The model uses typical proportions until you add your own measurements, then reshapes to match.
+          </p>
+        )}
+
+        <div className="mt-3">
+          <MeasurementDetail key={selected} metric={selected} rows={all} />
+        </div>
 
         {(['Jacket & shirt', 'Pants'] as const).map((group) => (
           <div key={group} className="mt-4">
