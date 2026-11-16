@@ -11,7 +11,7 @@ function isStaple(line: string, staples: string[]) {
   return staples.some((s) => l.includes(s.toLowerCase()))
 }
 
-export default function Favorites({ data }: { data: MealsData }) {
+export default function Favorites({ data, onEstimate }: { data: MealsData; onEstimate: (m: Meal) => void }) {
   const [query, setQuery] = useState('')
   const [viewing, setViewing] = useState<Meal | null>(null)
   const [editing, setEditing] = useState(false)
@@ -115,9 +115,21 @@ export default function Favorites({ data }: { data: MealsData }) {
                 compact
                 r={{ ...current, ingredients: current.ingredients.map((text) => ({ text, staple: isStaple(text, data.staples) || undefined })) }}
               />
-              <button type="button" className="btn-secondary w-full" onClick={() => setEditing(true)}>
-                Edit recipe
-              </button>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={() => {
+                    closeView()
+                    onEstimate(current)
+                  }}
+                >
+                  ✦ {current.calories !== undefined ? 'Re-estimate macros' : 'Estimate macros'}
+                </button>
+                <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>
+                  Edit recipe
+                </button>
+              </div>
             </div>
           ))}
       </Sheet>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMealsData } from '../useMealsData'
+import type { Meal } from '../db'
 import Favorites from './meals/Favorites'
 import Staples from './meals/Staples'
 import Prefs from './meals/Prefs'
@@ -29,6 +30,7 @@ function readSection(): Section {
 export default function Meals() {
   const data = useMealsData()
   const [section, setSection] = useState<Section>(readSection)
+  const [pendingEstimate, setPendingEstimate] = useState<Meal | null>(null)
 
   useEffect(() => {
     try {
@@ -58,10 +60,20 @@ export default function Meals() {
         ))}
       </div>
 
-      {data && section === 'favorites' && <Favorites data={data} />}
+      {data && section === 'favorites' && (
+        <Favorites
+          data={data}
+          onEstimate={(m) => {
+            setPendingEstimate(m)
+            setSection('maker')
+          }}
+        />
+      )}
       {data && section === 'staples' && <Staples data={data} />}
       {data && section === 'prefs' && <Prefs data={data} />}
-      {data && section === 'maker' && <Maker data={data} />}
+      {data && section === 'maker' && (
+        <Maker data={data} pendingEstimate={pendingEstimate} onPendingConsumed={() => setPendingEstimate(null)} />
+      )}
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { getSetting, setSetting } from './db'
+import { db, getSetting, setSetting, type Meal } from './db'
 import { chatJSON, type ChatTurn } from './gemini'
 import {
   addTo,
@@ -40,20 +40,33 @@ export interface ListUpdates {
   removeStaples?: string[]
 }
 
+export interface MacroEstimate {
+  servings?: number | null
+  calories: number
+  protein: number
+  carbs: number
+  fat: number
+  basis?: string | null
+}
+
 export interface MakerReply {
   reply: string
   recipe?: MakerRecipe | null
   updates?: ListUpdates | null
+  macroEstimate?: MacroEstimate | null
 }
 
 export interface ChatMessage {
   id: string
   role: 'user' | 'model'
-  text: string // user prompt, or the model's reply text
+  text: string // what the chat shows: user prompt, or the model's reply text
+  prompt?: string // full text sent to the model when it differs from `text`
+  estimateFor?: number // favorite this macro-estimate conversation is about
   reply?: MakerReply
   applied?: ListUpdates // what actually changed, for undo
   undone?: boolean
   savedMealId?: number
+  estimateSaved?: boolean
   error?: boolean
 }
 
@@ -94,6 +107,20 @@ export const REPLY_SCHEMA = {
         tips: { ...STR, nullable: true },
       },
       required: ['name', 'servings', 'prepMin', 'cookMin', 'ingredients', 'steps'],
+    },
+    macroEstimate: {
+      type: 'OBJECT',
+      nullable: true,
+      description: 'Per-serving nutrition estimate for a recipe the user asked about; null while asking follow-up questions.',
+      properties: {
+        servings: { ...INT, nullable: true },
+        calories: INT,
+        protein: { ...INT, description: 'grams' },
+        carbs: { ...INT, description: 'grams' },
+        fat: { ...INT, description: 'grams' },
+        basis: { ...STR, nullable: true, description: 'One short line on the assumptions used' },
+      },
+      required: ['calories', 'protein', 'carbs', 'fat'],
     },
     updates: {
       type: 'OBJECT',
@@ -141,6 +168,10 @@ How to answer:
 - If the user is only chatting or answering questions, set "recipe" to null.
 - Default to 1-2 servings unless asked. Avoid repeating a saved favorite unless asked for it.
 
+Macro estimate skill:
+- When asked to estimate the macros of a recipe, first check whether anything that changes the numbers a lot is unclear: portion or serving size, cut of meat (skin on/off, lean %), how much oil/butter, sauces, whether rice/pasta amounts are dry or cooked. If so, ask up to 3 short, specific follow-up questions in "reply" and set "macroEstimate" to null.
+- Once you have enough (or the user says to just estimate), return "macroEstimate" per serving: calories, protein, carbs, fat as whole numbers, plus a one-line "basis" naming the key assumptions. Keep "recipe" null for estimates. Only these four values; don't list other nutrients.
+
 Preference skill:
 - When the user states a like, dislike, allergy, or something they always keep or ran out of, record it in "updates" (addLikes, addDislikes, addAllergies, addStaples, removeStaples, etc.). Use short lowercase food names. Don't repeat items already on a list.
 - If the user asks you to build out or fill in their preferences, interview them: ask 2-4 quick, specific questions per turn (proteins, vegetables, cuisines, spice level, textures, allergies, what's always in the kitchen), and record their answers in "updates" on the next turn. Keep going until they say stop.
@@ -153,8 +184,37 @@ export function toTurns(messages: ChatMessage[]): ChatTurn[] {
     .filter((m) => !m.error)
     .map((m) => ({
       role: m.role,
-      parts: [{ text: m.role === 'model' && m.reply ? JSON.stringify(m.reply) : m.text }],
+      parts: [{ text: m.role === 'model' && m.reply ? JSON.stringify(m.reply) : (m.prompt ?? m.text) }],
     }))
+}
+
+/** The message sent when "Estimate macros" is tapped on a favorite. */
+export function estimatePrompt(m: Meal): string {
+  const lines = [
+    `Estimate the calories and macros per serving for my saved recipe "${m.name}"${m.servings ? ` (serves ${m.servings})` : ' (servings not set)'}.`,
+    'Ingredients:',
+    ...(m.ingredients.length ? m.ingredients.map((i) => `- ${i}`) : ['- (none listed)']),
+  ]
+  if (m.steps.length) lines.push('Steps:', ...m.steps.map((s, i) => `${i + 1}. ${s}`))
+  if (m.notes) lines.push(`Notes: ${m.notes}`)
+  lines.push('Ask me follow-up questions first if anything important is unclear.')
+  return lines.join('\n')
+}
+
+/** Which favorite a reply's estimate belongs to: the nearest earlier estimate request. */
+export function estimateTarget(messages: ChatMessage[], index: number): number | undefined {
+  for (let i = index; i >= 0; i--) if (messages[i].estimateFor) return messages[i].estimateFor
+  return undefined
+}
+
+export async function saveEstimate(mealId: number, e: MacroEstimate): Promise<void> {
+  await db.meals.update(mealId, {
+    calories: e.calories,
+    protein: e.protein,
+    carbs: e.carbs,
+    fat: e.fat,
+    ...(e.servings ? { servings: e.servings } : {}),
+  })
 }
 
 export async function askMealMaker(data: MealsData, history: ChatMessage[], prompt: string): Promise<MakerReply> {

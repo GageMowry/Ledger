@@ -8,12 +8,16 @@ import {
   applyUpdates,
   askMealMaker,
   describeUpdates,
+  estimatePrompt,
+  estimateTarget,
   loadChat,
   saveChat,
+  saveEstimate,
   saveRecipe,
   undoUpdates,
   type ChatMessage,
 } from '../../mealMaker'
+import type { Meal } from '../../db'
 
 const STARTERS = [
   'Quick high-protein dinner with what I have',
@@ -24,11 +28,58 @@ const STARTERS = [
 
 const uid = () => Math.random().toString(36).slice(2, 10)
 
+function EstimateCard({ m, target, onChange }: { m: ChatMessage; target?: Meal; onChange: (patch: Partial<ChatMessage>) => void }) {
+  const e = m.reply!.macroEstimate!
+  const stats = [
+    { label: 'Calories', value: `${e.calories}` },
+    { label: 'Protein', value: `${e.protein}g` },
+    { label: 'Carbs', value: `${e.carbs}g` },
+    { label: 'Fat', value: `${e.fat}g` },
+  ]
+  return (
+    <div className="card">
+      <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+        Estimate per serving{target ? ` · ${target.name}` : ''}
+        {e.servings ? ` · serves ${e.servings}` : ''}
+      </p>
+      <dl className="mt-2 grid grid-cols-4 gap-2 text-center">
+        {stats.map((s) => (
+          <div key={s.label} className="rounded-xl bg-slate-50 py-2 dark:bg-slate-800/60">
+            <dt className="text-[11px] text-slate-500 uppercase dark:text-slate-400">{s.label}</dt>
+            <dd className="text-base font-semibold tabular-nums">{s.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {e.basis && <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">{e.basis}</p>}
+      {target && (
+        <div className="mt-3">
+          {m.estimateSaved ? (
+            <p className="text-center text-sm font-medium text-emerald-600 dark:text-emerald-400">✓ Saved to {target.name}</p>
+          ) : (
+            <button
+              type="button"
+              className="btn-primary w-full"
+              onClick={async () => {
+                await saveEstimate(target.id, e)
+                onChange({ estimateSaved: true })
+              }}
+            >
+              Save to “{target.name}”
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ModelMessage({
   m,
+  target,
   onChange,
 }: {
   m: ChatMessage
+  target?: Meal
   onChange: (patch: Partial<ChatMessage>) => void
 }) {
   const r = m.reply?.recipe
@@ -60,7 +111,7 @@ function ModelMessage({
               <li key={c}>✓ {c}</li>
             ))}
           </ul>
-          {!m.undone && (
+          {!m.undone && m.applied && (
             <button
               type="button"
               className="shrink-0 font-semibold no-underline"
@@ -74,6 +125,8 @@ function ModelMessage({
           )}
         </div>
       )}
+
+      {m.reply?.macroEstimate && <EstimateCard m={m} target={target} onChange={onChange} />}
 
       {r && (
         <div className="card">
@@ -117,7 +170,15 @@ function ModelMessage({
   )
 }
 
-export default function Maker({ data }: { data: MealsData }) {
+export default function Maker({
+  data,
+  pendingEstimate,
+  onPendingConsumed,
+}: {
+  data: MealsData
+  pendingEstimate?: Meal | null
+  onPendingConsumed?: () => void
+}) {
   const hasKey = useLiveQuery(async () => !!(await getSetting<string>('geminiApiKey', '')), [])
   const [messages, setMessages] = useState<ChatMessage[] | null>(null)
   const [text, setText] = useState('')
@@ -138,17 +199,32 @@ export default function Maker({ data }: { data: MealsData }) {
     void saveChat(next)
   }
 
-  async function send(prompt: string) {
+  // "Estimate macros" from Favorites lands here with the recipe ready to send.
+  useEffect(() => {
+    if (!pendingEstimate || !messages || busy || hasKey !== true) return
+    onPendingConsumed?.()
+    void send(estimatePrompt(pendingEstimate), { display: `Estimate macros for “${pendingEstimate.name}”`, estimateFor: pendingEstimate.id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEstimate, messages === null, hasKey])
+
+  async function send(prompt: string, opts?: { display?: string; estimateFor?: number }) {
     const p = prompt.trim()
     if (!p || busy || !messages) return
     const history = messages
-    const withUser = [...history, { id: uid(), role: 'user' as const, text: p }]
+    const userMsg: ChatMessage = {
+      id: uid(),
+      role: 'user',
+      text: opts?.display ?? p,
+      ...(opts?.display ? { prompt: p } : {}),
+      ...(opts?.estimateFor ? { estimateFor: opts.estimateFor } : {}),
+    }
+    const withUser = [...history, userMsg]
     update(withUser)
     setText('')
     if (inputRef.current) inputRef.current.style.height = 'auto'
     setBusy(true)
     try {
-      const reply = await askMealMaker(data, history, p)
+      const reply = await askMealMaker(data, history, userMsg.prompt ?? userMsg.text)
       const applied = await applyUpdates(reply.updates)
       update([...withUser, { id: uid(), role: 'model', text: reply.reply, reply, applied }])
     } catch (e) {
@@ -212,14 +288,21 @@ export default function Maker({ data }: { data: MealsData }) {
       )}
 
       <div className="space-y-4">
-        {messages.map((m) =>
+        {messages.map((m, idx) =>
           m.role === 'user' ? (
             <div key={m.id} className="flex justify-end">
               <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">{m.text}</div>
             </div>
           ) : (
             <div key={m.id} className="max-w-full">
-              <ModelMessage m={m} onChange={(patch) => update(messages.map((x) => (x.id === m.id ? { ...x, ...patch } : x)))} />
+              <ModelMessage
+                m={m}
+                target={(() => {
+                  const id = estimateTarget(messages, idx)
+                  return id ? data.meals.find((x) => x.id === id) : undefined
+                })()}
+                onChange={(patch) => update(messages.map((x) => (x.id === m.id ? { ...x, ...patch } : x)))}
+              />
             </div>
           ),
         )}
@@ -237,7 +320,10 @@ export default function Maker({ data }: { data: MealsData }) {
             onClick={() => {
               const trimmed = messages.slice(0, -2)
               setMessages(trimmed)
-              void send(lastUser.text)
+              void send(lastUser.prompt ?? lastUser.text, {
+                display: lastUser.prompt ? lastUser.text : undefined,
+                estimateFor: lastUser.estimateFor,
+              })
             }}
           >
             Try again
