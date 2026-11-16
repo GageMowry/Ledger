@@ -1,4 +1,4 @@
-import { useEffect, type ComponentType, type SVGProps } from 'react'
+import { useEffect, useRef, type ComponentType, type SVGProps } from 'react'
 import { navigate, useRoute, type Route } from './router'
 import { requestPersistentStorage } from './db'
 import { BodyIcon, ClosetIcon, MealsIcon, SettingsIcon, TasksIcon, TodayIcon } from './components/Icons'
@@ -45,6 +45,18 @@ function Page({ route }: { route: Route }) {
 
 export default function App() {
   const route = useRoute()
+  const navRef = useRef<HTMLElement>(null)
+
+  // Publish the tab bar's height so fixed bars (chat composer) can sit just above it.
+  useEffect(() => {
+    const el = navRef.current
+    if (!el) return
+    const set = () => document.documentElement.style.setProperty('--nav-h', `${el.offsetHeight}px`)
+    set()
+    const ro = new ResizeObserver(set)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     void requestPersistentStorage()
@@ -56,7 +68,7 @@ export default function App() {
 
   return (
     <div className="mx-auto flex min-h-full max-w-xl flex-col">
-      <header className="pt-safe sticky top-0 z-10 border-b border-slate-200 bg-slate-50/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+      <header className="pt-safe sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
         <div className="flex h-14 items-center justify-between px-4">
           <h1 className="text-xl font-semibold tracking-tight">{TITLES[route]}</h1>
           <button
@@ -74,7 +86,7 @@ export default function App() {
         <Page route={route} />
       </main>
 
-      <nav className="pb-safe fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+      <nav ref={navRef} className="pb-safe fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <div className="mx-auto grid max-w-xl grid-cols-5">
           {TABS.map(({ route: r, label, Icon }) => {
             const active = r === route

@@ -18,7 +18,8 @@ import {
   type ChatMessage,
 } from '../../mealMaker'
 import type { Meal } from '../../db'
-import { SearchedBadge, Sources, WebToggle } from '../../components/WebSearch'
+import { SearchedBadge, Sources } from '../../components/WebSearch'
+import ChatComposer, { ComposerSpacer, MSG_SCROLL_MARGIN, useChatScroll } from '../../components/ChatComposer'
 
 const STARTERS = [
   'Quick high-protein dinner with what I have',
@@ -186,16 +187,13 @@ export default function Maker({
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [web, setWeb] = useState(false)
-  const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     void loadChat().then(setMessages)
   }, [])
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages?.length, busy])
+  useChatScroll(messages, busy)
 
   const update = (next: ChatMessage[]) => {
     setMessages(next)
@@ -278,31 +276,19 @@ export default function Maker({
             ))}
           </div>
         </div>
-      ) : (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-500 dark:text-slate-400">Uses your staples and preferences</p>
-          <button
-            type="button"
-            className="text-sm font-medium text-indigo-600 dark:text-indigo-400"
-            disabled={busy}
-            onClick={() => confirm('Start a new conversation?') && update([])}
-          >
-            New chat
-          </button>
-        </div>
-      )}
+      ) : null}
 
       <div className="space-y-4">
         {messages.map((m, idx) =>
           m.role === 'user' ? (
-            <div key={m.id} className="flex justify-end">
+            <div key={m.id} data-msg-id={m.id} className={`flex justify-end ${MSG_SCROLL_MARGIN}`}>
               <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">
                 {m.searched && <SearchedBadge />}
                 {m.text}
               </div>
             </div>
           ) : (
-            <div key={m.id} className="max-w-full">
+            <div key={m.id} data-msg-id={m.id} className={`max-w-full ${MSG_SCROLL_MARGIN}`}>
               <ModelMessage
                 m={m}
                 target={(() => {
@@ -339,21 +325,22 @@ export default function Maker({
             Try again
           </button>
         )}
-        {/* Scroll target; the margin keeps the last message clear of the input bar and tab bar. */}
-        <div ref={endRef} className="scroll-mb-40" />
       </div>
+      <ComposerSpacer />
 
+      <ChatComposer
+        web={web}
+        onWeb={setWeb}
+        canReset={messages.length > 0 && !busy}
+        onNewChat={() => confirm('Start a new conversation? This one will be cleared.') && update([])}
+      >
       <form
-        className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-[5] rounded-2xl bg-slate-50/95 py-2 backdrop-blur dark:bg-slate-950/95"
+        className="flex items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault()
           void send(text)
         }}
       >
-        <div className="mb-2">
-          <WebToggle on={web} onChange={setWeb} />
-        </div>
-        <div className="flex items-end gap-2">
         <textarea
           ref={inputRef}
           rows={1}
@@ -376,8 +363,8 @@ export default function Maker({
         <button type="submit" className="btn-primary h-[46px] shrink-0" disabled={busy || !text.trim()}>
           Send
         </button>
-        </div>
       </form>
+      </ChatComposer>
     </div>
   )
 }

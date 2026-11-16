@@ -11,7 +11,8 @@ import {
   type ClosetMessage,
 } from '../../closetAI'
 import ClothingThumb from '../../components/ClothingThumb'
-import { SearchedBadge, Sources, WebToggle } from '../../components/WebSearch'
+import { SearchedBadge, Sources } from '../../components/WebSearch'
+import ChatComposer, { ComposerSpacer, MSG_SCROLL_MARGIN, useChatScroll } from '../../components/ChatComposer'
 import { CameraIcon } from '../../components/Icons'
 
 const STARTERS = ['Outfit for work tomorrow', 'Casual weekend fit', 'Going out tonight', 'What am I missing in my wardrobe?']
@@ -171,7 +172,6 @@ export default function Stylist({
   const [text, setText] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [web, setWeb] = useState(false)
-  const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const photoRef = useRef<HTMLInputElement>(null)
 
@@ -179,9 +179,7 @@ export default function Stylist({
     void loadClosetChat().then(setMessages)
   }, [])
 
-  useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [messages?.length, busy])
+  useChatScroll(messages, busy)
 
   const update = (next: ClosetMessage[]) => {
     setMessages(next)
@@ -305,36 +303,21 @@ export default function Stylist({
             ))}
           </div>
         </div>
-      ) : (
-        <div className="flex items-center justify-between">
-          <p className="text-xs text-slate-500 dark:text-slate-400">Uses your closet and measurements</p>
-          <button
-            type="button"
-            className="text-sm font-medium text-indigo-600 dark:text-indigo-400"
-            disabled={!!busy}
-            onClick={() => confirm('Start a new conversation?') && update([])}
-          >
-            New chat
-          </button>
-        </div>
-      )}
+      ) : null}
 
       <div className="space-y-4">
         {messages.map((m) =>
           m.role === 'user' ? (
-            <div key={m.id} className="flex justify-end">
+            <div key={m.id} data-msg-id={m.id} className={`flex justify-end ${MSG_SCROLL_MARGIN}`}>
               <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">
                 {m.searched && <SearchedBadge />}
                 {m.text}
               </div>
             </div>
           ) : (
-            <ModelMessage
-              key={m.id}
-              m={m}
-              items={items}
-              onChange={(patch) => update(messages.map((x) => (x.id === m.id ? { ...x, ...patch } : x)))}
-            />
+            <div key={m.id} data-msg-id={m.id} className={MSG_SCROLL_MARGIN}>
+              <ModelMessage m={m} items={items} onChange={(patch) => update(messages.map((x) => (x.id === m.id ? { ...x, ...patch } : x)))} />
+            </div>
           ),
         )}
         {busy && (
@@ -358,8 +341,8 @@ export default function Stylist({
             Try again
           </button>
         )}
-        <div ref={endRef} className="scroll-mb-40" />
       </div>
+      <ComposerSpacer />
 
       <input
         ref={photoRef}
@@ -372,17 +355,19 @@ export default function Stylist({
           e.target.value = ''
         }}
       />
+      <ChatComposer
+        web={web}
+        onWeb={setWeb}
+        canReset={messages.length > 0 && !busy}
+        onNewChat={() => confirm('Start a new conversation? This one will be cleared.') && update([])}
+      >
       <form
-        className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-[5] rounded-2xl bg-slate-50/95 py-2 backdrop-blur dark:bg-slate-950/95"
+        className="flex items-end gap-2"
         onSubmit={(e) => {
           e.preventDefault()
           void send(text)
         }}
       >
-        <div className="mb-2">
-          <WebToggle on={web} onChange={setWeb} />
-        </div>
-        <div className="flex items-end gap-2">
         <button
           type="button"
           className="btn-secondary h-[46px] w-[46px] shrink-0 px-0 text-lg"
@@ -414,8 +399,8 @@ export default function Stylist({
         <button type="submit" className="btn-primary h-[46px] shrink-0" disabled={!!busy || !text.trim()}>
           Send
         </button>
-        </div>
       </form>
+      </ChatComposer>
     </div>
   )
 }

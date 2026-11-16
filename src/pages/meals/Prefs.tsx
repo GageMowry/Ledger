@@ -59,7 +59,7 @@ export default function Prefs({ data }: { data: MealsData }) {
   return (
     <div className="space-y-6">
       {/* One add line for every list; stays in view while scrolling. */}
-      <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top)+var(--ribbon-offset,0px))] z-[5] transition-[top] duration-200 -mx-4 bg-slate-50/95 px-4 py-2 backdrop-blur dark:bg-slate-950/95">
+      <div className="sticky top-[calc(3.5rem+env(safe-area-inset-top)+var(--ribbon-offset,0px))] z-[5] transition-[top] duration-200 -mx-4 bg-white/95 px-4 py-2 backdrop-blur dark:bg-slate-950/95">
         <input
           ref={inputRef}
           className="field"
