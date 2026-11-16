@@ -138,7 +138,7 @@ export default function Items({
         </button>
       </div>
 
-      <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+      <div className="chip-row">
         <button type="button" className={chip(cat === 'all')} onClick={() => setCat('all')}>
           All · {items.length}
         </button>

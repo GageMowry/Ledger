@@ -85,7 +85,7 @@ export default function ChatComposer({
     <div
       ref={ref}
       className="fixed inset-x-0 z-[7] border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95"
-      style={{ bottom: 'var(--nav-h, 64px)' }}
+      style={{ bottom: 'calc(var(--nav-h, 64px) - var(--vp-gap, 0px))' }}
     >
       <div className="mx-auto max-w-xl px-4 pt-2 pb-2">
         <div className="mb-2 flex items-center justify-between gap-2">

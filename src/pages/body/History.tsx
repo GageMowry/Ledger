@@ -77,7 +77,7 @@ export default function History() {
 
   return (
     <div className="space-y-4">
-      <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+      <div className="chip-row">
         {FILTERS.map((f) => (
           <button
             key={f.id}

@@ -94,7 +94,7 @@ export default function App() {
         <Page route={route} />
       </main>
 
-      <nav ref={navRef} className="pb-safe fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+      <nav ref={navRef} style={{ bottom: 'calc(-1 * var(--vp-gap, 0px))' }} className="pb-safe fixed inset-x-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <div className="mx-auto grid max-w-xl grid-cols-5">
           {TABS.map(({ route: r, label, Icon }) => {
             const active = r === route

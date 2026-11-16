@@ -16,7 +16,7 @@ export default function UpdateBanner() {
     <div
       role="status"
       className="fixed inset-x-0 z-40 px-4 pb-2 animate-[slide-up-in_250ms_ease-out]"
-      style={{ bottom: 'calc(var(--nav-h, 64px) + var(--composer-h, 0px))' }}
+      style={{ bottom: 'calc(var(--nav-h, 64px) + var(--composer-h, 0px) - var(--vp-gap, 0px))' }}
     >
       <div className="mx-auto flex max-w-xl items-center justify-between gap-3 rounded-2xl bg-slate-900 px-4 py-3 text-sm text-white shadow-lg dark:bg-white dark:text-slate-900">
         <span>A new version of Ledger is ready.</span>

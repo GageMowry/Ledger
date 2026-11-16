@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSetting, setSetting } from '../db'
 import { MODEL_RULES, getSearchUsage, listModels, pickModel, resolveModels } from '../gemini'
 import { exportBackup, importBackup, saveBackupFile } from '../backup'
+import { viewportInfo } from '../viewport'
 
 type Status = { kind: 'ok' | 'error' | 'info'; text: string } | null
 
@@ -237,6 +238,12 @@ function StorageSection() {
         <ul className="mt-2 space-y-1 text-sm text-slate-600 dark:text-slate-300">
           <li>Used: {mb(info.usage)}{info.quota ? ` of ${mb(info.quota)} available` : ''}</li>
           <li>Protected from automatic clearing: {info.persisted ? 'yes' : 'not confirmed'}</li>
+          <li className="pt-1 font-mono text-[11px] text-slate-400">
+            {(() => {
+              const v = viewportInfo()
+              return `display: ${v.standalone ? 'app' : 'browser'} · screen ${v.screenH} · view ${v.innerH} · visual ${v.visualH} · bottom fix ${v.gap}`
+            })()}
+          </li>
         </ul>
       ) : (
         <p className="mt-2 text-sm text-slate-500">Checking…</p>

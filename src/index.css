@@ -73,6 +73,12 @@ textarea {
   }
 }
 
+/* Horizontally scrolling chip row. Vertical padding keeps the chips' outlines
+   from being clipped by the scroll container; the negative margin keeps spacing. */
+@utility chip-row {
+  @apply no-scrollbar -mx-4 -my-1 flex gap-2 overflow-x-auto px-4 py-1.5;
+}
+
 @utility card {
   @apply rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800;
 }

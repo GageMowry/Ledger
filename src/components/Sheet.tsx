@@ -49,7 +49,13 @@ export default function Sheet({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true" aria-label={title}>
+    <div
+      className="fixed inset-x-0 top-0 z-50 flex items-end justify-center"
+      style={{ bottom: 'calc(-1 * var(--vp-gap, 0px))' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
       <button
         type="button"
         aria-label="Close"
