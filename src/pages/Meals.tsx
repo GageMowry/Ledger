@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMealsData } from '../useMealsData'
 import type { Meal } from '../db'
+import SectionRibbon from '../components/SectionRibbon'
 import Favorites from './meals/Favorites'
 import Staples from './meals/Staples'
 import Prefs from './meals/Prefs'
@@ -12,7 +13,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'favorites', label: 'Favorites' },
   { id: 'staples', label: 'Staples' },
   { id: 'prefs', label: 'Prefs' },
-  { id: 'maker', label: 'Maker' },
+  { id: 'maker', label: '✦ Maker' },
 ]
 
 export const MEALS_SECTION_KEY = 'ledger.meals.section'
@@ -42,23 +43,8 @@ export default function Meals() {
   }, [section])
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-200/70 p-1 dark:bg-slate-800">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => setSection(s.id)}
-            aria-pressed={section === s.id}
-            className={`rounded-lg py-1.5 text-sm font-medium ${
-              section === s.id ? 'bg-white shadow-sm dark:bg-slate-700' : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            {s.id === 'maker' ? '✦ ' : ''}
-            {s.label}
-          </button>
-        ))}
-      </div>
+    <div className="-mt-2 space-y-4">
+      <SectionRibbon sections={SECTIONS} value={section} onChange={setSection} />
 
       {data && section === 'favorites' && (
         <Favorites

@@ -3,6 +3,7 @@ import Overview from './body/Overview'
 import Lifts from './body/Lifts'
 import Runs from './body/Runs'
 import History from './body/History'
+import SectionRibbon from '../components/SectionRibbon'
 
 type Section = 'overview' | 'lifts' | 'runs' | 'history'
 
@@ -38,21 +39,8 @@ export default function Body() {
   }, [section])
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-1 rounded-xl bg-slate-200/70 p-1 dark:bg-slate-800">
-        {SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => setSection(s.id)}
-            className={`rounded-lg py-1.5 text-sm font-medium ${
-              section === s.id ? 'bg-white shadow-sm dark:bg-slate-700' : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
+    <div className="-mt-2 space-y-4">
+      <SectionRibbon sections={SECTIONS} value={section} onChange={setSection} />
 
       {section === 'overview' && <Overview />}
       {section === 'lifts' && <Lifts />}

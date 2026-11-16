@@ -5,12 +5,18 @@ import {
   formatMinutes,
   getPrefs,
   getStaples,
+  getTargets,
+  getTimeLimit,
   removeFrom,
   saveMeal,
   savePrefs,
   saveStaples,
+  saveTargets,
+  saveTimeLimit,
   type FoodPrefs,
   type MealInput,
+  type NutritionTargets,
+  type TimeLimit,
 } from './meals'
 import type { MealsData } from './useMealsData'
 
@@ -38,6 +44,21 @@ export interface ListUpdates {
   removeAllergies?: string[]
   addStaples?: string[]
   removeStaples?: string[]
+  // Settings the Meal Maker may change when asked.
+  timeLimitMin?: number | null // > 0 sets and turns on the limit; 0 turns it off
+  notes?: string | null // full replacement for "Other notes"
+  targets?: { enabled?: boolean | null; calories?: number | null; protein?: number | null; carbs?: number | null; fat?: number | null } | null
+  // Filled in by applyUpdates so the change can be shown and undone.
+  settingsChange?: SettingsChange
+}
+
+export interface SettingsChange {
+  prevTimeLimit?: TimeLimit
+  nextTimeLimit?: TimeLimit
+  prevNotes?: string
+  nextNotes?: string
+  prevTargets?: NutritionTargets
+  nextTargets?: NutritionTargets
 }
 
 export interface MacroEstimate {
@@ -135,6 +156,28 @@ export const REPLY_SCHEMA = {
         removeAllergies: STR_LIST,
         addStaples: STR_LIST,
         removeStaples: STR_LIST,
+        timeLimitMin: {
+          ...INT,
+          nullable: true,
+          description: 'New max total prep + cook minutes (5-240). 0 turns the time limit off. Only when the user asks.',
+        },
+        notes: {
+          ...STR,
+          nullable: true,
+          description: 'Full new text for "Other notes". Keep the existing notes and add to them unless the user wants them replaced.',
+        },
+        targets: {
+          type: 'OBJECT',
+          nullable: true,
+          description: 'Daily targets to change. Include only the fields the user asked about. enabled false turns targets off.',
+          properties: {
+            enabled: { type: 'BOOLEAN', nullable: true },
+            calories: { ...INT, nullable: true },
+            protein: { ...INT, nullable: true, description: 'grams' },
+            carbs: { ...INT, nullable: true, description: 'grams' },
+            fat: { ...INT, nullable: true, description: 'grams' },
+          },
+        },
       },
     },
   },
@@ -171,6 +214,10 @@ How to answer:
 Macro estimate skill:
 - When asked to estimate the macros of a recipe, first check whether anything that changes the numbers a lot is unclear: portion or serving size, cut of meat (skin on/off, lean %), how much oil/butter, sauces, whether rice/pasta amounts are dry or cooked. If so, ask up to 3 short, specific follow-up questions in "reply" and set "macroEstimate" to null.
 - Once you have enough (or the user says to just estimate), return "macroEstimate" per serving: calories, protein, carbs, fat as whole numbers, plus a one-line "basis" naming the key assumptions. Keep "recipe" null for estimates. Only these four values; don't list other nutrients.
+
+Settings skill:
+- The user can ask you to change their max cook + prep time, their "other notes", or their daily calorie/macro targets. Put the change in "updates": timeLimitMin (0 turns the limit off), notes (the full new notes text; keep what's there and add to it unless told to replace), targets (only the fields they mentioned; enabled false turns targets off).
+- Only change these when the user asks or clearly confirms, and say what you changed in "reply". If they ask for a target without a number (e.g. "set my calories for a cut"), suggest a number and ask them to confirm before setting it.
 
 Preference skill:
 - When the user states a like, dislike, allergy, or something they always keep or ran out of, record it in "updates" (addLikes, addDislikes, addAllergies, addStaples, removeStaples, etc.). Use short lowercase food names. Don't repeat items already on a list.
@@ -234,7 +281,8 @@ export async function applyUpdates(u: ListUpdates | null | undefined): Promise<L
   const diffRemove = (before: string[], after: string[]) => before.filter((x) => !after.includes(x))
 
   const next: FoodPrefs = { ...prefs }
-  const step = (key: 'likes' | 'dislikes' | 'avoid', add?: string[], remove?: string[], addKey?: keyof ListUpdates, removeKey?: keyof ListUpdates) => {
+  type ListKey = 'addLikes' | 'addDislikes' | 'addAllergies' | 'removeLikes' | 'removeDislikes' | 'removeAllergies'
+  const step = (key: 'likes' | 'dislikes' | 'avoid', add?: string[], remove?: string[], addKey?: ListKey, removeKey?: ListKey) => {
     const before = next[key]
     let after = add?.length ? addTo(before, add) : before
     after = remove?.length ? removeFrom(after, remove) : after
@@ -255,14 +303,56 @@ export async function applyUpdates(u: ListUpdates | null | undefined): Promise<L
   if (sa.length) applied.addStaples = sa
   if (sr.length) applied.removeStaples = sr
 
+  // ---- Settings: time limit, notes, targets ----
+  const sc: SettingsChange = {}
+  if (typeof u.timeLimitMin === 'number') {
+    const prev = await getTimeLimit()
+    const nextTL: TimeLimit =
+      u.timeLimitMin > 0 ? { enabled: true, maxTotalMin: Math.min(240, Math.max(5, Math.round(u.timeLimitMin))) } : { ...prev, enabled: false }
+    if (nextTL.enabled !== prev.enabled || nextTL.maxTotalMin !== prev.maxTotalMin) {
+      sc.prevTimeLimit = prev
+      sc.nextTimeLimit = nextTL
+    }
+  }
+  if (typeof u.notes === 'string' && u.notes.trim() !== prefs.notes.trim()) {
+    sc.prevNotes = prefs.notes
+    sc.nextNotes = u.notes.trim()
+    next.notes = sc.nextNotes
+  }
+  if (u.targets) {
+    const prev = await getTargets()
+    const nt: NutritionTargets = { ...prev }
+    let touched = false
+    for (const k of ['calories', 'protein', 'carbs', 'fat'] as const) {
+      const v = u.targets[k]
+      if (typeof v === 'number') {
+        nt[k] = v > 0 ? Math.round(v) : undefined
+        touched = true
+      }
+    }
+    if (typeof u.targets.enabled === 'boolean') nt.enabled = u.targets.enabled
+    else if (touched) nt.enabled = true
+    if (JSON.stringify(nt) !== JSON.stringify(prev)) {
+      sc.prevTargets = prev
+      sc.nextTargets = nt
+    }
+  }
+  if (Object.keys(sc).length) applied.settingsChange = sc
+
   if (!Object.keys(applied).length) return undefined
   await savePrefs(next)
   if (sa.length || sr.length) await saveStaples(nextStaples)
+  if (sc.nextTimeLimit) await saveTimeLimit(sc.nextTimeLimit)
+  if (sc.nextTargets) await saveTargets(sc.nextTargets)
   return applied
 }
 
 /** Reverses a previously applied change set. */
 export async function undoUpdates(a: ListUpdates): Promise<void> {
+  const sc = a.settingsChange
+  if (sc?.prevTimeLimit) await saveTimeLimit(sc.prevTimeLimit)
+  if (sc?.prevTargets) await saveTargets(sc.prevTargets)
+  if (sc?.prevNotes !== undefined) await savePrefs({ ...(await getPrefs()), notes: sc.prevNotes })
   await applyUpdates({
     addLikes: a.removeLikes,
     removeLikes: a.addLikes,
@@ -286,6 +376,28 @@ export function describeUpdates(a: ListUpdates): string[] {
   push('Removed from', 'Dislikes', a.removeDislikes)
   push('Removed from', 'Allergies', a.removeAllergies)
   push('Removed from', 'Staples', a.removeStaples)
+  const sc = a.settingsChange
+  if (sc?.nextTimeLimit) {
+    out.push(
+      sc.nextTimeLimit.enabled
+        ? `Max cook + prep time: ${sc.prevTimeLimit?.enabled ? `${formatMinutes(sc.prevTimeLimit.maxTotalMin)} → ` : ''}${formatMinutes(sc.nextTimeLimit.maxTotalMin)}`
+        : 'Turned off the cook time limit',
+    )
+  }
+  if (sc?.nextTargets) {
+    const t = sc.nextTargets
+    const parts = [
+      t.calories && `${t.calories.toLocaleString()} cal`,
+      t.protein && `${t.protein}g protein`,
+      t.carbs && `${t.carbs}g carbs`,
+      t.fat && `${t.fat}g fat`,
+    ].filter(Boolean)
+    out.push(t.enabled ? `Daily targets: ${parts.join(' · ') || 'on'}` : 'Turned off calorie & macro targets')
+  }
+  if (sc?.nextNotes !== undefined) {
+    const n = sc.nextNotes
+    out.push(n ? `Notes: “${n.length > 80 ? `${n.slice(0, 80)}…` : n}”` : 'Cleared your notes')
+  }
   return out
 }
 
