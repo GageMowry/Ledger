@@ -1,12 +1,12 @@
 /**
- * iOS home-screen apps using the translucent status bar can report a layout
- * viewport that's shorter than the screen (roughly by the status bar height).
- * Anything pinned to `bottom: 0` then floats above the real bottom, leaving a
- * blank band under the tab bar.
+ * Viewport diagnostics, shown in Settings.
  *
- * We measure that gap and publish it as --vp-gap; bottom-pinned bars shift
- * down by it. Outside the installed app, or when iOS reports correctly, the
- * gap is 0 and nothing moves.
+ * Background: with the translucent status bar style, some iPhones gave the
+ * home-screen app a web view that was a status bar's height short at the
+ * bottom (e.g. screen 844, view 797). That strip can't be drawn into, so
+ * shifting bars down only clipped them. The fix was switching to the standard
+ * status bar style in index.html. This module now only reports the numbers;
+ * --vp-gap stays 0.
  */
 
 export interface ViewportInfo {
@@ -45,7 +45,7 @@ export function installViewportFix(): void {
   const root = document.documentElement
   const update = () => {
     latest = measure()
-    root.style.setProperty('--vp-gap', `${latest.gap}px`)
+    root.style.setProperty('--vp-gap', '0px')
   }
   update()
   window.addEventListener('resize', update)

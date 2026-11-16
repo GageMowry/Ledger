@@ -241,7 +241,7 @@ function StorageSection() {
           <li className="pt-1 font-mono text-[11px] text-slate-400">
             {(() => {
               const v = viewportInfo()
-              return `display: ${v.standalone ? 'app' : 'browser'} · screen ${v.screenH} · view ${v.innerH} · visual ${v.visualH} · bottom fix ${v.gap}`
+              return `display: ${v.standalone ? 'app' : 'browser'} · screen ${v.screenH} · view ${v.innerH} · visual ${v.visualH} · gap ${v.screenH - v.innerH}`
             })()}
           </li>
         </ul>
