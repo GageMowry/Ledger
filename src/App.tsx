@@ -75,7 +75,9 @@ export default function App() {
   }, [route])
 
   return (
-    <div className="mx-auto flex min-h-full max-w-xl flex-col">
+    // Always at least 1px taller than the screen: on iPhone home-screen apps, a page
+    // that can't scroll places the fixed tab bar differently from one that can.
+    <div className="mx-auto flex max-w-xl flex-col" style={{ minHeight: 'calc(100dvh + 1px)' }}>
       <header className="pt-safe sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
         <div className="flex h-14 items-center justify-between px-4">
           <h1 className="text-xl font-semibold tracking-tight">{TITLES[route]}</h1>
