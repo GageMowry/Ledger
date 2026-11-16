@@ -1,0 +1,97 @@
+import { useEffect, type ComponentType, type SVGProps } from 'react'
+import { navigate, useRoute, type Route } from './router'
+import { requestPersistentStorage } from './db'
+import { BodyIcon, ClosetIcon, MealsIcon, SettingsIcon, TasksIcon, TodayIcon } from './components/Icons'
+import Today from './pages/Today'
+import Settings from './pages/Settings'
+import ComingSoon from './pages/ComingSoon'
+
+const TABS: { route: Route; label: string; Icon: ComponentType<SVGProps<SVGSVGElement>> }[] = [
+  { route: 'today', label: 'Today', Icon: TodayIcon },
+  { route: 'tasks', label: 'Tasks', Icon: TasksIcon },
+  { route: 'body', label: 'Body', Icon: BodyIcon },
+  { route: 'meals', label: 'Meals', Icon: MealsIcon },
+  { route: 'closet', label: 'Closet', Icon: ClosetIcon },
+]
+
+const TITLES: Record<Route, string> = {
+  today: 'Today',
+  tasks: 'Tasks',
+  body: 'Body',
+  meals: 'Meals',
+  closet: 'Closet',
+  settings: 'Settings',
+}
+
+function Page({ route }: { route: Route }) {
+  switch (route) {
+    case 'today':
+      return <Today />
+    case 'settings':
+      return <Settings />
+    case 'tasks':
+      return <ComingSoon phase={1} what="Your task list" />
+    case 'body':
+      return <ComingSoon phase={2} what="Measurements and PRs" />
+    case 'meals':
+      return <ComingSoon phase={3} what="Your meal library and preferences" />
+    case 'closet':
+      return <ComingSoon phase={4} what="Your wardrobe and starred outfits" />
+  }
+}
+
+export default function App() {
+  const route = useRoute()
+
+  useEffect(() => {
+    void requestPersistentStorage()
+  }, [])
+
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [route])
+
+  return (
+    <div className="mx-auto flex min-h-full max-w-xl flex-col">
+      <header className="pt-safe sticky top-0 z-10 border-b border-slate-200 bg-slate-50/90 backdrop-blur dark:border-slate-800 dark:bg-slate-950/90">
+        <div className="flex h-14 items-center justify-between px-4">
+          <h1 className="text-xl font-semibold tracking-tight">{TITLES[route]}</h1>
+          <button
+            type="button"
+            onClick={() => navigate('settings')}
+            className={`rounded-full p-2 ${route === 'settings' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500'}`}
+            aria-label="Settings"
+          >
+            <SettingsIcon className="h-6 w-6" />
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1 px-4 pt-4 pb-28">
+        <Page route={route} />
+      </main>
+
+      <nav className="pb-safe fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+        <div className="mx-auto grid max-w-xl grid-cols-5">
+          {TABS.map(({ route: r, label, Icon }) => {
+            const active = r === route
+            return (
+              <button
+                key={r}
+                type="button"
+                onClick={() => navigate(r)}
+                className={`flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${
+                  active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'
+                }`}
+                aria-current={active ? 'page' : undefined}
+              >
+                <Icon className="h-6 w-6" />
+                {label}
+              </button>
+            )
+          })}
+        </div>
+      </nav>
+    </div>
+  )
+}
