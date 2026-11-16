@@ -48,6 +48,40 @@ export async function listModels(apiKey: string): Promise<GeminiModel[]> {
 
 export type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } }
 
+export interface ChatTurn {
+  role: 'user' | 'model'
+  parts: GeminiPart[]
+}
+
+/**
+ * Multi-turn call with a system prompt and a JSON response schema, so the
+ * reply always parses into the same shape. Returns the parsed object.
+ */
+export async function chatJSON<T>(system: string, turns: ChatTurn[], schema: object): Promise<T> {
+  const apiKey = await getSetting<string>('geminiApiKey', '')
+  if (!apiKey) throw new Error('Add your Gemini API key in Settings first.')
+  const model = await getSetting<string>('geminiModel', DEFAULT_MODEL)
+  const data = await geminiFetch(`models/${model}:generateContent`, apiKey, {
+    method: 'POST',
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: system }] },
+      contents: turns,
+      generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.8 },
+    }),
+  })
+  const cand = data.candidates?.[0]
+  const text = cand?.content?.parts?.map((p: { text?: string }) => p.text ?? '').join('')
+  if (!text) {
+    const reason = cand?.finishReason ?? data.promptFeedback?.blockReason
+    throw new Error(reason ? `Gemini returned no answer (${reason}).` : 'Gemini returned an empty response.')
+  }
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error('Gemini sent a reply that could not be read. Try again.')
+  }
+}
+
 /** One-shot generation. Used by every "Suggest..." button in later phases. */
 export async function generate(parts: GeminiPart[], opts?: { json?: boolean }): Promise<string> {
   const apiKey = await getSetting<string>('geminiApiKey', '')

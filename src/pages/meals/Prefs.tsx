@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { formatMinutes, savePrefs, saveTargets, saveTimeLimit, type NutritionTargets } from '../../meals'
 import type { MealsData } from '../../useMealsData'
-import ChipInput from '../../components/ChipInput'
+import EditableList from '../../components/EditableList'
 
 function Toggle({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) {
   return (
@@ -30,73 +30,60 @@ export default function Prefs({ data }: { data: MealsData }) {
   const [notes, setNotes] = useState(prefs.notes)
   useEffect(() => setNotes(prefs.notes), [prefs.notes])
 
-  const ingredientSuggestions = [...new Set(data.meals.flatMap((m) => m.ingredients))].sort()
-
   return (
     <div className="space-y-4">
-      <section className="card space-y-4">
-        <div>
-          <h2 className="font-semibold">Food preferences</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Used for meal suggestions. Type and press return to add.</p>
-        </div>
-        <div>
-          <span className="text-sm font-medium">Love</span>
-          <div className="mt-1">
-            <ChipInput
-              label="Foods you like"
-              tone="green"
-              values={prefs.likes}
-              onChange={(likes) => void savePrefs({ ...prefs, likes })}
-              placeholder="e.g. chicken, rice, steak, eggs"
-              suggestions={ingredientSuggestions}
-            />
-          </div>
-        </div>
-        <div>
-          <span className="text-sm font-medium">Dislike</span>
-          <div className="mt-1">
-            <ChipInput
-              label="Foods you dislike"
-              tone="amber"
-              values={prefs.dislikes}
-              onChange={(dislikes) => void savePrefs({ ...prefs, dislikes })}
-              placeholder="e.g. mushrooms, olives"
-              suggestions={ingredientSuggestions}
-            />
-          </div>
-        </div>
-        <div>
-          <span className="text-sm font-medium">Never (allergies, restrictions)</span>
-          <div className="mt-1">
-            <ChipInput
-              label="Foods to avoid"
-              tone="red"
-              values={prefs.avoid}
-              onChange={(avoid) => void savePrefs({ ...prefs, avoid })}
-              placeholder="e.g. shellfish, pork"
-            />
-          </div>
-        </div>
-        <label className="block">
-          <span className="text-sm font-medium">Anything else</span>
-          <textarea
-            className="field mt-1 min-h-16"
-            aria-label="Other food notes"
-            placeholder="e.g. cutting right now, prefer meal-prep friendly lunches"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            onBlur={() => notes !== prefs.notes && void savePrefs({ ...prefs, notes })}
-          />
-        </label>
+      <p className="text-sm text-slate-500 dark:text-slate-400">
+        The Meal Maker reads all of this, and can add to these lists as you chat. Try “help me build out my preferences.”
+      </p>
+
+      <EditableList
+        title="Likes"
+        items={prefs.likes}
+        onChange={(likes) => void savePrefs({ ...prefs, likes })}
+        placeholder="e.g. steak, spicy food, Mexican"
+        emptyText="Nothing yet."
+        tone="green"
+        maxHeight="max-h-48"
+      />
+      <EditableList
+        title="Dislikes"
+        items={prefs.dislikes}
+        onChange={(dislikes) => void savePrefs({ ...prefs, dislikes })}
+        placeholder="e.g. mushrooms, olives"
+        emptyText="Nothing yet."
+        tone="amber"
+        maxHeight="max-h-48"
+      />
+      <EditableList
+        title="Allergies & never"
+        description="Never used in a recipe."
+        items={prefs.avoid}
+        onChange={(avoid) => void savePrefs({ ...prefs, avoid })}
+        placeholder="e.g. shellfish, peanuts"
+        emptyText="Nothing yet."
+        tone="red"
+        maxHeight="max-h-48"
+      />
+
+      <section className="card">
+        <h2 className="font-semibold">Other notes</h2>
+        <textarea
+          className="field mt-2 min-h-20"
+          aria-label="Other food notes"
+          placeholder="e.g. cutting right now, cooking for one, no oven on weekdays"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={() => notes !== prefs.notes && void savePrefs({ ...prefs, notes })}
+        />
       </section>
 
       <section className="card">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold">Calorie & macro targets</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Shows daily totals on the Log tab.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Daily goals the Meal Maker plans recipes around.</p>
           </div>
-          <Toggle label="Track calories and macros" on={targets.enabled} onChange={(enabled) => void saveTargets({ ...targets, enabled })} />
+          <Toggle label="Use calorie and macro targets" on={targets.enabled} onChange={(enabled) => void saveTargets({ ...targets, enabled })} />
         </div>
         {targets.enabled && (
           <div className="mt-4 grid grid-cols-2 gap-3">
@@ -119,7 +106,7 @@ export default function Prefs({ data }: { data: MealsData }) {
                 </div>
               </label>
             ))}
-            <p className="col-span-2 text-xs text-slate-500 dark:text-slate-400">Leave any blank to skip it.</p>
+            <p className="col-span-2 text-xs text-slate-500 dark:text-slate-400">Per day. Leave any blank to skip it.</p>
           </div>
         )}
       </section>
@@ -129,7 +116,7 @@ export default function Prefs({ data }: { data: MealsData }) {
           <div>
             <h2 className="font-semibold">Max cook + prep time</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400">
-              {timeLimit.enabled ? `Suggestions stay under ${formatMinutes(timeLimit.maxTotalMin)}.` : 'No time limit on suggestions.'}
+              {timeLimit.enabled ? `Recipes stay under ${formatMinutes(timeLimit.maxTotalMin)} unless you ask otherwise.` : 'No time limit.'}
             </p>
           </div>
           <Toggle label="Limit total time" on={timeLimit.enabled} onChange={(enabled) => void saveTimeLimit({ ...timeLimit, enabled })} />

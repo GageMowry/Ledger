@@ -49,32 +49,21 @@ export interface Run {
   createdAt: number
 }
 
-export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack'
-
+/** A favorite recipe. Stored in the `meals` table. */
 export interface Meal {
   id: number
   name: string
-  slots: MealSlot[] // which meals of the day it suits
+  servings?: number
   prepMin?: number
   cookMin?: number
-  calories?: number
-  protein?: number // grams
+  calories?: number // per serving
+  protein?: number // grams per serving
   carbs?: number
   fat?: number
-  ingredients: string[]
-  tags: string[]
+  ingredients: string[] // one line each, e.g. "1 lb chicken thighs"
+  steps: string[]
   notes?: string
-  favorite: boolean
-  createdAt: number
-}
-
-export interface MealLog {
-  id: number
-  mealId: number
-  name: string // snapshot, so the log survives if the meal is deleted
-  date: string
-  slot: MealSlot
-  servings: number
+  source?: 'ai' | 'manual'
   createdAt: number
 }
 
@@ -85,7 +74,6 @@ export class LedgerDB extends Dexie {
   lifts!: EntityTable<LiftEntry, 'id'>
   runs!: EntityTable<Run, 'id'>
   meals!: EntityTable<Meal, 'id'>
-  mealLogs!: EntityTable<MealLog, 'id'>
 
   constructor() {
     super('ledger')
@@ -102,6 +90,21 @@ export class LedgerDB extends Dexie {
       meals: '++id, name, createdAt',
       mealLogs: '++id, mealId, date, slot, [date+slot]',
     })
+    // v4: daily meal log removed; meals are favorite recipes with steps.
+    this.version(4)
+      .stores({ mealLogs: null })
+      .upgrade((tx) =>
+        tx
+          .table('meals')
+          .toCollection()
+          .modify((m: Record<string, unknown>) => {
+            m.steps ??= []
+            m.ingredients ??= []
+            delete m.slots
+            delete m.tags
+            delete m.favorite
+          }),
+      )
   }
 }
 
