@@ -16,7 +16,8 @@ export default defineConfig(({ command }) => {
       react(),
       tailwindcss(),
       VitePWA({
-        registerType: 'autoUpdate',
+        // Ask before switching to a new version, so a reload never wipes something mid-edit.
+        registerType: 'prompt',
         includeAssets: ['apple-touch-icon.png', 'icon.svg'],
         manifest: {
           name: 'Ledger',

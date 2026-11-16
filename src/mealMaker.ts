@@ -1,4 +1,5 @@
 import { db, getSetting, setSetting, type Meal } from './db'
+import { HEIGHT_IN, formatHeight } from './body'
 import { chatJSON, chatJSONWithSearch, type ChatTurn, type WebSource } from './gemini'
 import {
   addTo,
@@ -204,7 +205,7 @@ export function buildSystemPrompt(d: MealsData): string {
         .filter(Boolean)
         .join(', ')
     : ''
-  return `You are the Meal Maker in a personal app. You help one person (a 5'10" man) decide what to cook and you write clear, reliable recipes.
+  return `You are the Meal Maker in a personal app. You help one person (a ${formatHeight(HEIGHT_IN)} man) decide what to cook and you write clear, reliable recipes.
 
 KITCHEN STAPLES (always on hand): ${list(d.staples)}
 KITCHEN EQUIPMENT AVAILABLE: ${list(d.equipment.have)}; plus basics: ${BASIC_TOOLS}.

@@ -1,6 +1,9 @@
 import { useEffect, useRef, type ComponentType, type SVGProps } from 'react'
 import { navigate, useRoute, type Route } from './router'
-import { requestPersistentStorage } from './db'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db, requestPersistentStorage } from './db'
+import { todayISO } from './dates'
+import UpdateBanner from './components/UpdateBanner'
 import { BodyIcon, ClosetIcon, MealsIcon, SettingsIcon, TasksIcon, TodayIcon } from './components/Icons'
 import Today from './pages/Today'
 import Settings from './pages/Settings'
@@ -46,6 +49,11 @@ function Page({ route }: { route: Route }) {
 export default function App() {
   const route = useRoute()
   const navRef = useRef<HTMLElement>(null)
+  // Open tasks due today or overdue, shown as a badge on the Tasks tab.
+  const dueCount = useLiveQuery(async () => {
+    const today = todayISO()
+    return db.tasks.filter((t) => !t.done && !!t.dueDate && t.dueDate <= today).count()
+  }, [])
 
   // Publish the tab bar's height so fixed bars (chat composer) can sit just above it.
   useEffect(() => {
@@ -99,14 +107,23 @@ export default function App() {
                   active ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'
                 }`}
                 aria-current={active ? 'page' : undefined}
+                aria-label={r === 'tasks' && dueCount ? `${label}, ${dueCount} due` : label}
               >
-                <Icon className="h-6 w-6" />
+                <span className="relative">
+                  <Icon className="h-6 w-6" />
+                  {r === 'tasks' && !!dueCount && (
+                    <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] leading-none font-bold text-white">
+                      {dueCount > 9 ? '9+' : dueCount}
+                    </span>
+                  )}
+                </span>
                 {label}
               </button>
             )
           })}
         </div>
       </nav>
+      <UpdateBanner />
     </div>
   )
 }

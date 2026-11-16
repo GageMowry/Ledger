@@ -26,11 +26,31 @@ export interface GeminiModel {
   displayName: string
 }
 
+/** Turns Google's error into something actionable. */
+export function friendlyError(status: number, raw: string): string {
+  const r = raw.toLowerCase()
+  if (status === 429 || r.includes('quota') || r.includes('exhausted')) {
+    return r.includes('per day') || r.includes('daily')
+      ? "Gemini's free daily limit is used up. It resets tomorrow."
+      : "Gemini's free-tier rate limit was hit. Wait a minute, then try again."
+  }
+  if (r.includes('api key not valid') || r.includes('api_key_invalid')) return "Your Gemini API key isn't valid. Update it in Settings."
+  if (status === 403) return "This API key isn't allowed to use that Gemini model. Check the key in Google AI Studio."
+  if (status >= 500) return 'Gemini is busy right now. Try again in a moment.'
+  if (r.includes('safety') || r.includes('blocked')) return 'Gemini declined to answer that. Try rewording it.'
+  return raw
+}
+
 async function geminiFetch(path: string, apiKey: string, init?: RequestInit) {
-  const res = await fetch(`${API}/${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey, ...init?.headers },
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API}/${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey, ...init?.headers },
+    })
+  } catch {
+    throw new Error(navigator.onLine === false ? "You're offline. AI features need an internet connection." : "Couldn't reach Gemini. Check your connection and try again.")
+  }
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`
     try {
@@ -39,7 +59,7 @@ async function geminiFetch(path: string, apiKey: string, init?: RequestInit) {
     } catch {
       /* keep status text */
     }
-    const err = new Error(message) as Error & { status?: number }
+    const err = new Error(friendlyError(res.status, message)) as Error & { status?: number }
     err.status = res.status
     throw err
   }
@@ -202,7 +222,13 @@ export async function searchText(system: string, turns: ChatTurn[]): Promise<{ t
     const uri = c.web?.uri
     if (!uri || seen.has(uri)) continue
     seen.add(uri)
-    sources.push({ uri, title: c.web?.title || new URL(uri).hostname })
+    let host = uri
+    try {
+      host = new URL(uri).hostname
+    } catch {
+      /* keep the raw link */
+    }
+    sources.push({ uri, title: c.web?.title || host })
   }
   return { text, sources: sources.slice(0, 6) }
 }

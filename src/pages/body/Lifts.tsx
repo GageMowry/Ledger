@@ -56,16 +56,16 @@ function LiftCard({ def, entries }: { def: (typeof LIFTS)[number]; entries: Lift
         }}
       >
         <input
-          className="field"
+          className="field min-w-0 flex-1"
           inputMode="decimal"
-          placeholder={unit}
+          placeholder={unit === 'reps' ? 'Reps' : 'Weight (lbs)'}
           aria-label={`${def.label} (${unit})`}
           value={input}
           onChange={(e) => setInput(e.target.value)}
         />
         <input
           type="date"
-          className="field w-40 shrink-0"
+          className="field w-[8.75rem] shrink-0 px-2 text-sm"
           value={date}
           max={todayISO()}
           onChange={(e) => setDate(e.target.value)}

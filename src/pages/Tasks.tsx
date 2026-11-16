@@ -103,7 +103,7 @@ export default function Tasks() {
             }`}
           >
             {f.label}
-            {f.id === 'open' && openCount > 0 ? ` Â· ${openCount}` : ''}
+            {f.id === 'open' && openCount > 0 ? ` · ${openCount}` : ''}
           </button>
         ))}
       </div>

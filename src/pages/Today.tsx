@@ -4,7 +4,8 @@ import { getStaples } from '../meals'
 import { MEALS_SECTION_KEY } from './Meals'
 import { CLOSET_SECTION_KEY } from './Closet'
 import { navigate } from '../router'
-import { todayISO } from '../dates'
+import { addDays, friendlyDate, todayISO } from '../dates'
+import { fmtNum } from '../body'
 import { compareOpen } from '../tasks'
 import TaskRow from '../components/TaskRow'
 
@@ -25,6 +26,17 @@ export default function Today() {
     .sort((a, b) => Number(a.done) - Number(b.done) || compareOpen(a, b))
 
   const meals = useLiveQuery(async () => ({ favorites: await db.meals.count(), staples: (await getStaples()).length }), [])
+  // Body snapshot: latest weight with change over ~30 days, top PRs, last run.
+  const body = useLiveQuery(async () => {
+    const weights = (await db.measurements.where('metric').equals('weight').toArray()).sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt)
+    const latest = weights[weights.length - 1]
+    const monthAgo = addDays(today, -30)
+    const base = [...weights].reverse().find((w) => w.date <= monthAgo) ?? weights[0]
+    const lifts = await db.lifts.toArray()
+    const pr = (k: string) => lifts.filter((l) => l.lift === k).reduce((m, l) => Math.max(m, l.value), 0)
+    const runs = await db.runs.orderBy('date').reverse().first()
+    return { latest, base, squat: pr('squat'), bench: pr('bench'), pullups: pr('pullups'), lastRun: runs }
+  }, [today])
   const closet = useLiveQuery(async () => ({ items: await db.clothes.count(), outfits: await db.outfits.count() }), [])
   const openCloset = () => {
     try {
@@ -99,6 +111,37 @@ export default function Today() {
           </p>
         )}
       </section>
+
+      {body && (body.latest || body.squat || body.bench || body.pullups || body.lastRun) && (
+        <button type="button" onClick={() => navigate('body')} className="card block w-full text-left">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Body</h2>
+            <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">Log</span>
+          </div>
+          <dl className="mt-2 grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-xl bg-slate-50 py-2 dark:bg-slate-800/60">
+              <dt className="text-[11px] text-slate-500 uppercase dark:text-slate-400">Weight</dt>
+              <dd className="font-semibold tabular-nums">{body.latest ? `${fmtNum(body.latest.value)}` : '—'}</dd>
+              {body.latest && body.base && body.base !== body.latest && (
+                <dd className="text-[11px] text-slate-500 tabular-nums dark:text-slate-400">
+                  {body.latest.value - body.base.value >= 0 ? '+' : ''}
+                  {fmtNum(body.latest.value - body.base.value)} lbs
+                </dd>
+              )}
+            </div>
+            <div className="rounded-xl bg-slate-50 py-2 dark:bg-slate-800/60">
+              <dt className="text-[11px] text-slate-500 uppercase dark:text-slate-400">Sq / Bench</dt>
+              <dd className="font-semibold tabular-nums">{body.squat || body.bench ? `${body.squat || '—'} / ${body.bench || '—'}` : '—'}</dd>
+              {!!body.pullups && <dd className="text-[11px] text-slate-500 dark:text-slate-400">{body.pullups} pull-ups</dd>}
+            </div>
+            <div className="rounded-xl bg-slate-50 py-2 dark:bg-slate-800/60">
+              <dt className="text-[11px] text-slate-500 uppercase dark:text-slate-400">Last run</dt>
+              <dd className="font-semibold">{body.lastRun ? friendlyDate(body.lastRun.date) : '—'}</dd>
+              {body.lastRun && <dd className="text-[11px] text-slate-500 dark:text-slate-400">{fmtNum(body.lastRun.distanceMi, 2)} mi</dd>}
+            </div>
+          </dl>
+        </button>
+      )}
 
       <button type="button" onClick={() => openMeals('maker')} className="card block w-full text-left">
         <div className="flex items-center justify-between">
