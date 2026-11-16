@@ -18,6 +18,7 @@ import {
   type ChatMessage,
 } from '../../mealMaker'
 import type { Meal } from '../../db'
+import { SearchedBadge, Sources, WebToggle } from '../../components/WebSearch'
 
 const STARTERS = [
   'Quick high-protein dinner with what I have',
@@ -99,6 +100,7 @@ function ModelMessage({
       <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
         {m.text}
       </div>
+      <Sources sources={m.sources} />
 
       {changes.length > 0 && (
         <div
@@ -183,6 +185,7 @@ export default function Maker({
   const [messages, setMessages] = useState<ChatMessage[] | null>(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [web, setWeb] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -207,16 +210,18 @@ export default function Maker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEstimate, messages === null, hasKey])
 
-  async function send(prompt: string, opts?: { display?: string; estimateFor?: number; base?: ChatMessage[] }) {
+  async function send(prompt: string, opts?: { display?: string; estimateFor?: number; base?: ChatMessage[]; search?: boolean }) {
     const p = prompt.trim()
     const history = opts?.base ?? messages
     if (!p || busy || !history) return
+    const search = opts?.search ?? web
     const userMsg: ChatMessage = {
       id: uid(),
       role: 'user',
       text: opts?.display ?? p,
       ...(opts?.display ? { prompt: p } : {}),
       ...(opts?.estimateFor ? { estimateFor: opts.estimateFor } : {}),
+      ...(search ? { searched: true } : {}),
     }
     const withUser = [...history, userMsg]
     update(withUser)
@@ -224,9 +229,9 @@ export default function Maker({
     if (inputRef.current) inputRef.current.style.height = 'auto'
     setBusy(true)
     try {
-      const reply = await askMealMaker(data, history, userMsg.prompt ?? userMsg.text)
+      const { reply, sources } = await askMealMaker(data, history, userMsg.prompt ?? userMsg.text, { search })
       const applied = await applyUpdates(reply.updates)
-      update([...withUser, { id: uid(), role: 'model', text: reply.reply, reply, applied }])
+      update([...withUser, { id: uid(), role: 'model', text: reply.reply, reply, applied, ...(sources?.length ? { sources } : {}) }])
     } catch (e) {
       update([...withUser, { id: uid(), role: 'model', text: (e as Error).message, error: true }])
     } finally {
@@ -291,7 +296,10 @@ export default function Maker({
         {messages.map((m, idx) =>
           m.role === 'user' ? (
             <div key={m.id} className="flex justify-end">
-              <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">{m.text}</div>
+              <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">
+                {m.searched && <SearchedBadge />}
+                {m.text}
+              </div>
             </div>
           ) : (
             <div key={m.id} className="max-w-full">
@@ -324,6 +332,7 @@ export default function Maker({
                 display: lastUser.prompt ? lastUser.text : undefined,
                 estimateFor: lastUser.estimateFor,
                 base: trimmed,
+                search: !!lastUser.searched,
               })
             }}
           >
@@ -335,12 +344,16 @@ export default function Maker({
       </div>
 
       <form
-        className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-[5] flex items-end gap-2 rounded-2xl bg-slate-50/95 py-2 backdrop-blur dark:bg-slate-950/95"
+        className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-[5] rounded-2xl bg-slate-50/95 py-2 backdrop-blur dark:bg-slate-950/95"
         onSubmit={(e) => {
           e.preventDefault()
           void send(text)
         }}
       >
+        <div className="mb-2">
+          <WebToggle on={web} onChange={setWeb} />
+        </div>
+        <div className="flex items-end gap-2">
         <textarea
           ref={inputRef}
           rows={1}
@@ -363,6 +376,7 @@ export default function Maker({
         <button type="submit" className="btn-primary h-[46px] shrink-0" disabled={busy || !text.trim()}>
           Send
         </button>
+        </div>
       </form>
     </div>
   )

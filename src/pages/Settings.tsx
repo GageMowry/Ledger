@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSetting, setSetting } from '../db'
-import { DEFAULT_MODEL, listModels, type GeminiModel } from '../gemini'
+import { MODEL_RULES, getSearchUsage, listModels, pickModel, resolveModels } from '../gemini'
 import { exportBackup, importBackup, saveBackupFile } from '../backup'
 
 type Status = { kind: 'ok' | 'error' | 'info'; text: string } | null
@@ -26,9 +26,9 @@ function formatCounts(counts: Record<string, number>) {
 
 function GeminiSection() {
   const savedKey = useLiveQuery(() => getSetting<string>('geminiApiKey', ''), [], undefined)
-  const savedModel = useLiveQuery(() => getSetting<string>('geminiModel', DEFAULT_MODEL), [], DEFAULT_MODEL)
+  const resolved = useLiveQuery(() => getSetting<{ lite: string; search: string } | null>('resolvedModels', null), [])
+  const usage = useLiveQuery(getSearchUsage, [])
   const [keyInput, setKeyInput] = useState('')
-  const [models, setModels] = useState<GeminiModel[]>([])
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<Status>(null)
 
@@ -36,9 +36,15 @@ function GeminiSection() {
     setBusy(true)
     setStatus({ kind: 'info', text: 'Checking key…' })
     try {
-      const found = await listModels(apiKey)
-      setModels(found)
-      setStatus({ kind: 'ok', text: `Key works. ${found.length} Gemini models available.` })
+      const ids = (await listModels(apiKey)).map((m) => m.id)
+      const lite = pickModel('lite', ids)
+      const search = pickModel('search', ids)
+      const missing = [!lite && MODEL_RULES.lite.label, !search && MODEL_RULES.search.label].filter(Boolean)
+      setStatus(
+        missing.length
+          ? { kind: 'error', text: `Key works, but ${missing.join(' and ')} isn't available on it yet.` }
+          : { kind: 'ok', text: `Key works. Using ${lite} and ${search}.` },
+      )
       return true
     } catch (e) {
       setStatus({ kind: 'error', text: `Key check failed: ${(e as Error).message}` })
@@ -53,19 +59,15 @@ function GeminiSection() {
     if (!key) return
     if (await check(key)) {
       await setSetting('geminiApiKey', key)
+      await resolveModels(true)
       setKeyInput('')
     }
   }
 
   async function remove() {
-    await db.settings.delete('geminiApiKey')
-    setModels([])
+    await db.settings.bulkDelete(['geminiApiKey', 'resolvedModels'])
     setStatus({ kind: 'info', text: 'Key removed from this device.' })
   }
-
-  const modelOptions = models.length
-    ? models
-    : [{ id: savedModel, displayName: savedModel }]
 
   return (
     <section className="card">
@@ -109,24 +111,34 @@ function GeminiSection() {
         </form>
       )}
 
-      <label className="mt-4 block text-sm font-medium" htmlFor="model">
-        Model
-      </label>
-      <select
-        id="model"
-        className="field mt-1"
-        value={savedModel}
-        onChange={(e) => void setSetting('geminiModel', e.target.value)}
-      >
-        {modelOptions.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.id}
-          </option>
-        ))}
-      </select>
-      {!models.length && savedKey && (
-        <p className="mt-1 text-xs text-slate-500">Tap “Test key” to load the full model list.</p>
-      )}
+      <h3 className="mt-5 text-xs font-semibold tracking-wide text-slate-500 uppercase">Models</h3>
+      <dl className="mt-2 divide-y divide-slate-100 text-sm dark:divide-slate-800">
+        <div className="flex items-start justify-between gap-3 py-2">
+          <dt>
+            <p className="font-medium">All tasks</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Makers, descriptions, photo tagging</p>
+          </dt>
+          <dd className="text-right">
+            <p className="whitespace-nowrap">{MODEL_RULES.lite.label}</p>
+            {resolved?.lite && <p className="font-mono text-[11px] text-slate-400">{resolved.lite}</p>}
+          </dd>
+        </div>
+        <div className="flex items-start justify-between gap-3 py-2">
+          <dt>
+            <p className="font-medium">Web search</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Only when Web is on in a Maker</p>
+          </dt>
+          <dd className="text-right">
+            <p className="whitespace-nowrap">{MODEL_RULES.search.label}</p>
+            {resolved?.search && <p className="font-mono text-[11px] text-slate-400">{resolved.search}</p>}
+            {usage && (
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {usage.used} of {usage.limit} used today
+              </p>
+            )}
+          </dd>
+        </div>
+      </dl>
 
       <StatusLine status={status} />
     </section>

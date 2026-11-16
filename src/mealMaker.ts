@@ -1,5 +1,5 @@
 import { db, getSetting, setSetting, type Meal } from './db'
-import { chatJSON, type ChatTurn } from './gemini'
+import { chatJSON, chatJSONWithSearch, type ChatTurn, type WebSource } from './gemini'
 import {
   addTo,
   formatMinutes,
@@ -96,6 +96,8 @@ export interface ChatMessage {
   savedMealId?: number
   estimateSaved?: boolean
   error?: boolean
+  searched?: boolean // user message sent with Web on
+  sources?: WebSource[]
 }
 
 const STR = { type: 'STRING' }
@@ -275,11 +277,25 @@ export async function saveEstimate(mealId: number, e: MacroEstimate): Promise<vo
   })
 }
 
-export async function askMealMaker(data: MealsData, history: ChatMessage[], prompt: string): Promise<MakerReply> {
+export async function askMealMaker(
+  data: MealsData,
+  history: ChatMessage[],
+  prompt: string,
+  opts?: { search?: boolean },
+): Promise<{ reply: MakerReply; sources?: WebSource[] }> {
   const turns = [...toTurns(history.slice(-16)), { role: 'user' as const, parts: [{ text: prompt }] }]
-  const r = await chatJSON<MakerReply>(buildSystemPrompt(data), turns, REPLY_SCHEMA)
+  const system = buildSystemPrompt(data)
+  let r: MakerReply
+  let sources: WebSource[] | undefined
+  if (opts?.search) {
+    const out = await chatJSONWithSearch<MakerReply>(system, turns, REPLY_SCHEMA)
+    r = out.result
+    sources = out.sources
+  } else {
+    r = await chatJSON<MakerReply>(system, turns, REPLY_SCHEMA)
+  }
   if (typeof r?.reply !== 'string') throw new Error('Gemini sent a reply in an unexpected format. Try again.')
-  return r
+  return { reply: r, sources }
 }
 
 /** Applies list changes and returns exactly what changed (for display and undo). */

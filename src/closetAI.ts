@@ -1,5 +1,5 @@
 import { db, getSetting, setSetting, type ClothingCategory, type ClothingItem, type Outfit } from './db'
-import { chatJSON, type ChatTurn, type GeminiPart } from './gemini'
+import { chatJSON, chatJSONWithSearch, type ChatTurn, type GeminiPart, type WebSource } from './gemini'
 import { blobToBase64, bodyContext, describeItemLine } from './closet'
 
 const STR = { type: 'STRING' }
@@ -119,6 +119,8 @@ export interface ClosetMessage {
   addedIds?: number[]
   savedOutfitId?: number
   error?: boolean
+  searched?: boolean
+  sources?: WebSource[]
 }
 
 const STYLIST_SCHEMA = {
@@ -185,17 +187,30 @@ export function toTurns(messages: ClosetMessage[]): ChatTurn[] {
     }))
 }
 
-export async function askStylist(history: ClosetMessage[], prompt: string): Promise<StylistReply> {
+export async function askStylist(
+  history: ClosetMessage[],
+  prompt: string,
+  opts?: { search?: boolean },
+): Promise<{ reply: StylistReply; sources?: WebSource[] }> {
   const [items, outfits] = await Promise.all([db.clothes.toArray(), db.outfits.toArray()])
   const turns = [...toTurns(history.slice(-16)), { role: 'user' as const, parts: [{ text: prompt }] }]
-  const r = await chatJSON<StylistReply>(await stylistSystemPrompt(items, outfits), turns, STYLIST_SCHEMA)
+  const system = await stylistSystemPrompt(items, outfits)
+  let r: StylistReply
+  let sources: WebSource[] | undefined
+  if (opts?.search) {
+    const out = await chatJSONWithSearch<StylistReply>(system, turns, STYLIST_SCHEMA)
+    r = out.result
+    sources = out.sources
+  } else {
+    r = await chatJSON<StylistReply>(system, turns, STYLIST_SCHEMA)
+  }
   if (typeof r?.reply !== 'string') throw new Error('Gemini sent a reply in an unexpected format. Try again.')
   if (r.outfit) {
     const ids = new Set(items.map((i) => i.id))
     r.outfit.itemIds = [...new Set(r.outfit.itemIds.filter((id) => ids.has(id)))]
     if (!r.outfit.itemIds.length) r.outfit = null
   }
-  return r
+  return { reply: r, sources }
 }
 
 export async function saveOutfit(o: StylistOutfit): Promise<number> {

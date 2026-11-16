@@ -11,6 +11,7 @@ import {
   type ClosetMessage,
 } from '../../closetAI'
 import ClothingThumb from '../../components/ClothingThumb'
+import { SearchedBadge, Sources, WebToggle } from '../../components/WebSearch'
 import { CameraIcon } from '../../components/Icons'
 
 const STARTERS = ['Outfit for work tomorrow', 'Casual weekend fit', 'Going out tonight', 'What am I missing in my wardrobe?']
@@ -47,6 +48,7 @@ function ModelMessage({ m, items, onChange }: { m: ClosetMessage; items: Clothin
   return (
     <div className="space-y-2">
       <Bubble>{m.text}</Bubble>
+      <Sources sources={m.sources} />
 
       {det && det.length > 0 && (
         <div className="card">
@@ -168,6 +170,7 @@ export default function Stylist({
   const [messages, setMessages] = useState<ClosetMessage[] | null>(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [web, setWeb] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const photoRef = useRef<HTMLInputElement>(null)
@@ -192,18 +195,24 @@ export default function Stylist({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, messages === null, hasKey])
 
-  async function send(prompt: string, display?: string, base: ClosetMessage[] | null = messages) {
+  async function send(prompt: string, display?: string, base: ClosetMessage[] | null = messages, search: boolean = web) {
     const p = prompt.trim()
     if (!p || busy || !base) return
-    const userMsg: ClosetMessage = { id: uid(), role: 'user', text: display ?? p, ...(display ? { prompt: p } : {}) }
+    const userMsg: ClosetMessage = {
+      id: uid(),
+      role: 'user',
+      text: display ?? p,
+      ...(display ? { prompt: p } : {}),
+      ...(search ? { searched: true } : {}),
+    }
     const withUser = [...base, userMsg]
     update(withUser)
     setText('')
     if (inputRef.current) inputRef.current.style.height = 'auto'
-    setBusy('Thinking')
+    setBusy(search ? 'Searching the web' : 'Thinking')
     try {
-      const reply = await askStylist(base, p)
-      update([...withUser, { id: uid(), role: 'model', text: reply.reply, reply }])
+      const { reply, sources } = await askStylist(base, p, { search })
+      update([...withUser, { id: uid(), role: 'model', text: reply.reply, reply, ...(sources?.length ? { sources } : {}) }])
     } catch (e) {
       update([...withUser, { id: uid(), role: 'model', text: (e as Error).message, error: true }])
     } finally {
@@ -314,7 +323,10 @@ export default function Stylist({
         {messages.map((m) =>
           m.role === 'user' ? (
             <div key={m.id} className="flex justify-end">
-              <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">{m.text}</div>
+              <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">
+                {m.searched && <SearchedBadge />}
+                {m.text}
+              </div>
             </div>
           ) : (
             <ModelMessage
@@ -340,7 +352,7 @@ export default function Stylist({
             onClick={() => {
               // Drop the failed attempt, then resend it on the trimmed history.
               const trimmed = messages.slice(0, -2)
-              void send(lastUser.prompt ?? lastUser.text, lastUser.prompt ? lastUser.text : undefined, trimmed)
+              void send(lastUser.prompt ?? lastUser.text, lastUser.prompt ? lastUser.text : undefined, trimmed, !!lastUser.searched)
             }}
           >
             Try again
@@ -361,12 +373,16 @@ export default function Stylist({
         }}
       />
       <form
-        className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-[5] flex items-end gap-2 rounded-2xl bg-slate-50/95 py-2 backdrop-blur dark:bg-slate-950/95"
+        className="sticky bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] z-[5] rounded-2xl bg-slate-50/95 py-2 backdrop-blur dark:bg-slate-950/95"
         onSubmit={(e) => {
           e.preventDefault()
           void send(text)
         }}
       >
+        <div className="mb-2">
+          <WebToggle on={web} onChange={setWeb} />
+        </div>
+        <div className="flex items-end gap-2">
         <button
           type="button"
           className="btn-secondary h-[46px] w-[46px] shrink-0 px-0 text-lg"
@@ -398,6 +414,7 @@ export default function Stylist({
         <button type="submit" className="btn-primary h-[46px] shrink-0" disabled={!!busy || !text.trim()}>
           Send
         </button>
+        </div>
       </form>
     </div>
   )
