@@ -87,8 +87,11 @@ export function buildFigure(p: BodyParams): FigureShape {
   const chestH = rx(p.chest, 0.68) * 0.87
   const stomachH = rx(p.stomach, 0.74)
   const waistH = rx(p.waist, 0.75)
-  const seatH = rx(p.seat, 0.78)
-  const ribsH = (chestH + stomachH) / 2 + 0.1
+  // On a male frame much of the seat measurement is glutes behind, so the
+  // front view stays narrow: hips only slightly wider than the waist.
+  const seatH = Math.min(rx(p.seat, 0.78) * 0.88, Math.max(rx(p.waist, 0.75) + 0.9, rx(p.seat, 0.78) * 0.8))
+  // Lats keep the ribcage wide, giving a V-taper rather than an hourglass.
+  const ribsH = chestH * 0.94 + stomachH * 0.06
   const thighH = rx(p.thigh, 0.95)
   const kneeH = rx(p.thigh * 0.63, 0.95)
   const calfH = rx(p.thigh * 0.67, 0.95)
@@ -176,15 +179,16 @@ export function buildFigure(p: BodyParams): FigureShape {
   // ---- Torso ----
   const torsoRight: P[] = [
     [neckH * 0.85, yNeckBase - 0.2],
-    [neckH + (shH - neckH) * 0.45, yShoulder - 0.05], // trapezius slope
+    [neckH + (shH - neckH) * 0.38, yShoulder + 0.45], // trapezius slope
     [shH - 1.4, yShoulder - 0.25],
     [chestH + 0.45, yArmpit],
     [chestH, yChest],
-    [ribsH, (yChest + yStomach) / 2],
+    [ribsH, yChest - 3],
+    [(ribsH + stomachH) / 2, (yChest - 3 + yStomach) / 2],
     [stomachH, yStomach],
     [waistH, yWaist],
     [seatH, ySeat],
-    [seatH * 0.88, yCrotch + 1],
+    [seatH * 0.93, yCrotch + 1],
     [1.3, yCrotch - 0.5],
   ]
   parts.push(body([[0, yCrotch - 0.8], ...mirror(torsoRight).reverse(), [0, yNeckBase - 0.1], ...torsoRight]))
@@ -321,10 +325,10 @@ export function buildFigure(p: BodyParams): FigureShape {
     [2.2, yTop - 0.55],
     [2.95, yTop - 2.0],
     [3.08, yTop - 4.0],
-    [3.0, yTop - 5.7],
-    [2.8, yTop - 7.1], // jaw angle
-    [2.15, yTop - 8.35],
-    [1.05, yChin + 0.1],
+    [3.04, yTop - 5.8],
+    [2.95, yTop - 7.0], // square jaw angle
+    [2.45, yTop - 8.25],
+    [1.45, yChin + 0.2], // broad chin
   ]
   parts.push(body([[0, yTop], ...headR, [0, yChin], ...mirror(headR).reverse()]))
   const ears = [-1, 1].map((s) => ({ cx: s * 3.1, cy: FLOOR - (yTop - 4.6) }))
@@ -333,10 +337,24 @@ export function buildFigure(p: BodyParams): FigureShape {
   for (const s of [-1, 1]) {
     // Collarbone
     details.push(body([[s * neckH * 0.9, yNeckBase - 0.85], [s * shH * 0.45, yNeckBase - 1.15], [s * (shH - 1.7), yShoulder + 0.05]], false))
-    // Pec underline
+    // Pec: flat lower border rising to a squared outer corner, then up into the armpit.
     details.push(
-      body([[s * 0.35, yChest - 0.6], [s * chestH * 0.48, yChest - 1.45], [s * chestH * 0.86, yChest - 0.5], [s * (chestH - 0.15), yChest + 1.3]], false),
+      body(
+        [
+          [s * 0.3, yChest - 1.5],
+          [s * chestH * 0.45, yChest - 1.75],
+          [s * chestH * 0.78, yChest - 1.5],
+          [s * (chestH - 0.35), yChest + 0.2],
+          [s * (chestH - 0.15), yChest + 2.3],
+        ],
+        false,
+      ),
     )
+    // Faint ab segments either side of the center line.
+    for (const dy of [3.4, 5.6]) {
+      const y = yStomach + dy
+      details.push(body([[s * 0.35, y - 0.15], [s * stomachH * 0.3, y + 0.05], [s * stomachH * 0.5, y - 0.1]], false))
+    }
     // Hip "V" lines
     details.push(body([[s * waistH * 0.74, yWaist - 0.2], [s * waistH * 0.48, yWaist - 2], [s * 1.25, yCrotch + 1.6]], false))
     // Oblique / side line under the pec
@@ -368,6 +386,7 @@ export function buildFigure(p: BodyParams): FigureShape {
     details.push(body([[s * neckH * 0.78, yChin + 0.3], [s * neckH * 0.45, yNeckBase + 0.3], [s * 0.55, yNeckBase - 0.75]], false))
   }
   details.push(body([[0, yNeckBase - 1.4], [0, yChest - 0.8]], false)) // sternum
+  details.push(body([[-0.35, yChin - 1.1], [0, yChin - 1.45], [0.35, yChin - 1.1]], false)) // Adam's apple
   details.push(body([[0, yChest - 2.6], [0, yStomach + 0.9]], false)) // linea alba
   details.push(body([[0, yCrotch + 0.1], [0, yCrotch - 2.6]], false)) // where the thighs meet
 
