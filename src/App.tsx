@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ComponentType, type SVGProps } from 'react'
+import { useEffect, useRef, useState, type ComponentType, type SVGProps } from 'react'
 import { navigate, useRoute, type Route } from './router'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, requestPersistentStorage } from './db'
@@ -70,6 +70,26 @@ export default function App() {
     void requestPersistentStorage()
   }, [])
 
+  // While typing on a phone, hide the tab bar: iOS lifts bottom bars above the
+  // keyboard, which would wedge the tabs between a text box and the keyboard.
+  const [typing, setTyping] = useState(false)
+  useEffect(() => {
+    const touch = () => navigator.maxTouchPoints > 0 || window.matchMedia('(pointer: coarse)').matches
+    const isText = (el: EventTarget | null) =>
+      touch() &&
+      (el instanceof HTMLTextAreaElement ||
+        (el instanceof HTMLInputElement && !['checkbox', 'radio', 'range', 'button', 'submit', 'file', 'color'].includes(el.type)) ||
+        (el instanceof HTMLElement && el.isContentEditable))
+    const onIn = (e: FocusEvent) => isText(e.target) && setTyping(true)
+    const onOut = () => setTimeout(() => setTyping(isText(document.activeElement)), 0)
+    document.addEventListener('focusin', onIn)
+    document.addEventListener('focusout', onOut)
+    return () => {
+      document.removeEventListener('focusin', onIn)
+      document.removeEventListener('focusout', onOut)
+    }
+  }, [])
+
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [route])
@@ -96,7 +116,7 @@ export default function App() {
         <Page route={route} />
       </main>
 
-      <nav ref={navRef} style={{ bottom: 'calc(-1 * var(--vp-gap, 0px))' }} className="pb-safe fixed inset-x-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+      <nav ref={navRef} hidden={typing} style={{ bottom: 'calc(-1 * var(--vp-gap, 0px))' }} className="pb-safe fixed inset-x-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
         <div className="mx-auto grid max-w-xl grid-cols-5">
           {TABS.map(({ route: r, label, Icon }) => {
             const active = r === route
