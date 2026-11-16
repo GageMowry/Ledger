@@ -2,6 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, getSetting, type Task } from '../db'
 import { getStaples } from '../meals'
 import { MEALS_SECTION_KEY } from './Meals'
+import { CLOSET_SECTION_KEY } from './Closet'
 import { navigate } from '../router'
 import { todayISO } from '../dates'
 import { compareOpen } from '../tasks'
@@ -24,6 +25,15 @@ export default function Today() {
     .sort((a, b) => Number(a.done) - Number(b.done) || compareOpen(a, b))
 
   const meals = useLiveQuery(async () => ({ favorites: await db.meals.count(), staples: (await getStaples()).length }), [])
+  const closet = useLiveQuery(async () => ({ items: await db.clothes.count(), outfits: await db.outfits.count() }), [])
+  const openCloset = () => {
+    try {
+      sessionStorage.setItem(CLOSET_SECTION_KEY, 'maker')
+    } catch {
+      /* storage unavailable */
+    }
+    navigate('closet')
+  }
   const openMeals = (section: string) => {
     try {
       sessionStorage.setItem(MEALS_SECTION_KEY, section)
@@ -102,9 +112,19 @@ export default function Today() {
         </p>
       </button>
 
-      <div className="card">
-        <p className="text-sm text-slate-500 dark:text-slate-400">Outfit ideas will show up here once the closet is built.</p>
-      </div>
+      <button type="button" onClick={openCloset} className="card block w-full text-left">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">✦ What should I wear?</h2>
+          <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">Outfit Maker</span>
+        </div>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          {closet
+            ? closet.items
+              ? `${closet.items} item${closet.items === 1 ? '' : 's'} in your closet · ${closet.outfits} saved outfit${closet.outfits === 1 ? '' : 's'}`
+              : 'Add your clothes to get outfit ideas'
+            : ' '}
+        </p>
+      </button>
     </div>
   )
 }

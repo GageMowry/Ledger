@@ -67,6 +67,31 @@ export interface Meal {
   createdAt: number
 }
 
+export type ClothingCategory = 'top' | 'bottom' | 'outerwear' | 'shoes' | 'accessory' | 'activewear'
+
+export interface ClothingItem {
+  id: number
+  name: string
+  category: ClothingCategory
+  color?: string
+  pattern?: string
+  fit?: string
+  description?: string
+  photo?: Blob // small square JPEG thumbnail
+  createdAt: number
+  updatedAt: number
+}
+
+export interface Outfit {
+  id: number
+  name: string
+  occasion?: string
+  itemIds: number[]
+  notes?: string
+  source: 'ai' | 'manual'
+  createdAt: number
+}
+
 export class LedgerDB extends Dexie {
   settings!: EntityTable<Setting, 'key'>
   tasks!: EntityTable<Task, 'id'>
@@ -74,6 +99,8 @@ export class LedgerDB extends Dexie {
   lifts!: EntityTable<LiftEntry, 'id'>
   runs!: EntityTable<Run, 'id'>
   meals!: EntityTable<Meal, 'id'>
+  clothes!: EntityTable<ClothingItem, 'id'>
+  outfits!: EntityTable<Outfit, 'id'>
 
   constructor() {
     super('ledger')
@@ -105,6 +132,10 @@ export class LedgerDB extends Dexie {
             delete m.favorite
           }),
       )
+    this.version(5).stores({
+      clothes: '++id, category, createdAt',
+      outfits: '++id, createdAt',
+    })
   }
 }
 

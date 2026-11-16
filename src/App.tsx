@@ -7,7 +7,7 @@ import Settings from './pages/Settings'
 import Tasks from './pages/Tasks'
 import Body from './pages/Body'
 import Meals from './pages/Meals'
-import ComingSoon from './pages/ComingSoon'
+import Closet from './pages/Closet'
 
 const TABS: { route: Route; label: string; Icon: ComponentType<SVGProps<SVGSVGElement>> }[] = [
   { route: 'today', label: 'Today', Icon: TodayIcon },
@@ -39,7 +39,7 @@ function Page({ route }: { route: Route }) {
     case 'meals':
       return <Meals />
     case 'closet':
-      return <ComingSoon phase={4} what="Your wardrobe and starred outfits" />
+      return <Closet />
   }
 }
 

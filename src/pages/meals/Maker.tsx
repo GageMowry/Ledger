@@ -207,10 +207,10 @@ export default function Maker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEstimate, messages === null, hasKey])
 
-  async function send(prompt: string, opts?: { display?: string; estimateFor?: number }) {
+  async function send(prompt: string, opts?: { display?: string; estimateFor?: number; base?: ChatMessage[] }) {
     const p = prompt.trim()
-    if (!p || busy || !messages) return
-    const history = messages
+    const history = opts?.base ?? messages
+    if (!p || busy || !history) return
     const userMsg: ChatMessage = {
       id: uid(),
       role: 'user',
@@ -318,11 +318,12 @@ export default function Maker({
             type="button"
             className="btn-secondary"
             onClick={() => {
+              // Drop the failed attempt, then resend it on the trimmed history.
               const trimmed = messages.slice(0, -2)
-              setMessages(trimmed)
               void send(lastUser.prompt ?? lastUser.text, {
                 display: lastUser.prompt ? lastUser.text : undefined,
                 estimateFor: lastUser.estimateFor,
+                base: trimmed,
               })
             }}
           >
