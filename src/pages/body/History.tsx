@@ -43,7 +43,7 @@ export default function History() {
         date: m.date,
         createdAt: m.createdAt,
         title: m.metric === 'weight' ? 'Weight' : (MEASURE_BY_KEY[m.metric]?.label ?? m.metric),
-        value: m.metric === 'weight' ? `${fmtNum(m.value)} lbs` : `${fmtNum(m.value, 2)}″`,
+        value: m.metric === 'weight' ? `${fmtNum(m.value)} lbs` : `${fmtNum(m.value, 2)}â€³`,
         remove: () => db.measurements.delete(m.id),
       })),
       ...data.lifts.map((l) => ({
@@ -60,7 +60,7 @@ export default function History() {
         kind: 'run' as Kind,
         date: r.date,
         createdAt: r.createdAt,
-        title: `Run · ${fmtNum(r.distanceMi, 2)} mi`,
+        title: `Run Â· ${fmtNum(r.distanceMi, 2)} mi`,
         value: `${formatDuration(r.durationSec)} (${formatDuration(pace(r.distanceMi, r.durationSec))}/mi)`,
         remove: () => db.runs.delete(r.id),
       })),
@@ -77,7 +77,7 @@ export default function History() {
 
   return (
     <div className="space-y-4">
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+      <div className="no-scrollbar -mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -101,7 +101,7 @@ export default function History() {
           <section key={date} className="card py-2">
             <h2 className="pt-1 text-xs font-semibold tracking-wide text-slate-500 uppercase">
               {friendlyDate(date)}
-              <span className="ml-1 font-normal normal-case">· {date}</span>
+              <span className="ml-1 font-normal normal-case">Â· {date}</span>
             </h2>
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {items.map((i) => (
@@ -117,7 +117,7 @@ export default function History() {
                         if (confirm(`Delete ${i.title} (${i.value}) from ${friendlyDate(i.date)}?`)) void i.remove()
                       }}
                     >
-                      ✕
+                      âœ•
                     </button>
                   </span>
                 </li>

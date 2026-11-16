@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, getSetting, type Task } from '../db'
+import { db, getSetting, type Meal, type Task } from '../db'
+import { SLOTS, dayTotals, getTargets } from '../meals'
 import { navigate } from '../router'
 import { todayISO } from '../dates'
 import { compareOpen } from '../tasks'
@@ -20,6 +21,14 @@ export default function Today() {
   const dueTasks = tasks
     .filter((t) => !!t.dueDate && t.dueDate <= today && (!t.done || (t.completedAt ?? 0) >= startOfDay))
     .sort((a, b) => Number(a.done) - Number(b.done) || compareOpen(a, b))
+
+  const meals = useLiveQuery(async () => {
+    const logs = await db.mealLogs.where('date').equals(today).toArray()
+    const ids = [...new Set(logs.map((l) => l.mealId))]
+    const list = (await db.meals.bulkGet(ids)).filter((m): m is Meal => !!m)
+    const targets = await getTargets()
+    return { logs, targets, totals: dayTotals(logs, new Map(list.map((m) => [m.id, m]))) }
+  }, [today])
 
   const now = new Date()
   const greeting = now.getHours() < 12 ? 'Good morning' : now.getHours() < 18 ? 'Good afternoon' : 'Good evening'
@@ -78,10 +87,50 @@ export default function Today() {
         )}
       </section>
 
+      <section className="card">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Meals today</h2>
+          <button
+            type="button"
+            onClick={() => {
+              try {
+                sessionStorage.setItem('ledger.meals.section', 'log')
+              } catch {
+                /* storage unavailable */
+              }
+              navigate('meals')
+            }}
+            className="text-sm font-medium text-indigo-600 dark:text-indigo-400"
+          >
+            Log a meal
+          </button>
+        </div>
+        {meals && meals.logs.length > 0 ? (
+          <ul className="mt-2 space-y-1 text-sm">
+            {SLOTS.map((s) => {
+              const items = meals.logs.filter((l) => l.slot === s.key)
+              if (!items.length) return null
+              return (
+                <li key={s.key} className="flex gap-2">
+                  <span className="w-20 shrink-0 text-slate-500 dark:text-slate-400">{s.label}</span>
+                  <span>{items.map((l) => l.name).join(', ')}</span>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          meals && <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Nothing logged yet.</p>
+        )}
+        {meals?.targets.enabled && meals.targets.calories && meals.logs.length > 0 && (
+          <p className="mt-2 text-xs text-slate-500 tabular-nums dark:text-slate-400">
+            {Math.round(meals.totals.calories).toLocaleString()} / {meals.targets.calories.toLocaleString()} cal
+            {meals.targets.protein ? ` · ${Math.round(meals.totals.protein)} / ${meals.targets.protein}g protein` : ''}
+          </p>
+        )}
+      </section>
+
       <div className="card">
-        <p className="text-sm text-slate-500 dark:text-slate-400">
-          Meals and outfit ideas will show up here as those sections are built.
-        </p>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Outfit ideas will show up here once the closet is built.</p>
       </div>
     </div>
   )

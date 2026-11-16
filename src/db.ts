@@ -49,12 +49,43 @@ export interface Run {
   createdAt: number
 }
 
+export type MealSlot = 'breakfast' | 'lunch' | 'dinner' | 'snack'
+
+export interface Meal {
+  id: number
+  name: string
+  slots: MealSlot[] // which meals of the day it suits
+  prepMin?: number
+  cookMin?: number
+  calories?: number
+  protein?: number // grams
+  carbs?: number
+  fat?: number
+  ingredients: string[]
+  tags: string[]
+  notes?: string
+  favorite: boolean
+  createdAt: number
+}
+
+export interface MealLog {
+  id: number
+  mealId: number
+  name: string // snapshot, so the log survives if the meal is deleted
+  date: string
+  slot: MealSlot
+  servings: number
+  createdAt: number
+}
+
 export class LedgerDB extends Dexie {
   settings!: EntityTable<Setting, 'key'>
   tasks!: EntityTable<Task, 'id'>
   measurements!: EntityTable<Measurement, 'id'>
   lifts!: EntityTable<LiftEntry, 'id'>
   runs!: EntityTable<Run, 'id'>
+  meals!: EntityTable<Meal, 'id'>
+  mealLogs!: EntityTable<MealLog, 'id'>
 
   constructor() {
     super('ledger')
@@ -66,6 +97,10 @@ export class LedgerDB extends Dexie {
       measurements: '++id, metric, date, [metric+date]',
       lifts: '++id, lift, date, [lift+date]',
       runs: '++id, date',
+    })
+    this.version(3).stores({
+      meals: '++id, name, createdAt',
+      mealLogs: '++id, mealId, date, slot, [date+slot]',
     })
   }
 }
