@@ -113,7 +113,14 @@ export default function Favorites({ data, onEstimate }: { data: MealsData; onEst
             <div className="space-y-4">
               <RecipeView
                 compact
-                r={{ ...current, ingredients: current.ingredients.map((text) => ({ text, staple: isStaple(text, data.staples) || undefined })) }}
+                r={{
+                  ...current,
+                  ingredients: current.ingredients.map((text) => ({
+                    text,
+                    // A staple you've run out of shows as something to buy.
+                    staple: isStaple(text, data.staples.filter((s) => !data.staplesOut.includes(s.toLowerCase()))) || undefined,
+                  })),
+                }}
               />
               <div className="grid grid-cols-2 gap-2">
                 <button

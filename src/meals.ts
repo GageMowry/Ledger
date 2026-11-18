@@ -28,6 +28,13 @@ export const getPrefs = async (): Promise<FoodPrefs> => ({ ...DEFAULT_PREFS, ...
 export const getTargets = () => getSetting<NutritionTargets>('nutritionTargets', DEFAULT_TARGETS)
 export const getTimeLimit = () => getSetting<TimeLimit>('mealTimeLimit', DEFAULT_TIME)
 export const getStaples = () => getSetting<string[]>('staples', [])
+/** Staples temporarily out of stock (lowercase). They stay on the list but the Maker won't count on them. */
+export const getStaplesOut = () => getSetting<string[]>('staplesOut', [])
+export const saveStaplesOut = (s: string[]) => setSetting('staplesOut', [...new Set(s.map((x) => x.trim().toLowerCase()).filter(Boolean))])
+export const isOut = (out: string[], name: string) => out.includes(name.trim().toLowerCase())
+/** Read-modify-write in one transaction so quick taps on several items all stick. */
+export const editStaplesOut = (change: (out: string[]) => string[]) =>
+  db.transaction('rw', db.settings, async () => saveStaplesOut(change(await getStaplesOut())))
 
 /** Kitchen equipment: a checklist of common items plus anything the user adds. */
 export const COMMON_EQUIPMENT: { group: string; items: string[] }[] = [

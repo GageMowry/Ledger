@@ -321,7 +321,9 @@ export default function Maker({
           <div className="card">
             <p className="font-semibold">What should we make?</p>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              I know your {data.staples.length} staples and your preferences. Ask for a meal, a craving, or what to do with something in the fridge.
+              I know your {data.staples.length} staples
+              {data.staples.some((s) => data.staplesOut.includes(s.toLowerCase())) ? ' (and what you ran out of)' : ''} and your preferences. Ask for a meal, a
+              craving, or what to do with something in the fridge.
             </p>
           </div>
           <div className="grid gap-2">

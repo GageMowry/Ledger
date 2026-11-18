@@ -5,13 +5,15 @@ import { hasGeminiKey } from '../closet'
 import SectionRibbon from '../components/SectionRibbon'
 import Items from './closet/Items'
 import Outfits from './closet/Outfits'
+import Pack from './closet/Pack'
 import Stylist from './closet/Stylist'
 
-type Section = 'items' | 'outfits' | 'maker'
+type Section = 'items' | 'outfits' | 'pack' | 'maker'
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'items', label: 'Items' },
   { id: 'outfits', label: 'Outfits' },
+  { id: 'pack', label: 'Pack' },
   { id: 'maker', label: '✦ Maker' },
 ]
 
@@ -62,6 +64,7 @@ export default function Closet() {
         />
       )}
       {items && outfits && section === 'outfits' && <Outfits items={items} outfits={outfits} />}
+      {items && hasKey !== undefined && section === 'pack' && <Pack items={items} hasKey={hasKey} />}
       {items && hasKey !== undefined && section === 'maker' && (
         <Stylist items={items} hasKey={hasKey} pending={pending} onPendingConsumed={() => setPending(null)} />
       )}

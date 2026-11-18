@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BASIC_TOOLS, COMMON_EQUIPMENT, addTo, saveEquipment, saveStaples } from '../../meals'
+import { BASIC_TOOLS, COMMON_EQUIPMENT, addTo, editStaplesOut, isOut, saveEquipment, saveStaples, saveStaplesOut } from '../../meals'
 import type { MealsData } from '../../useMealsData'
 
 const has = (list: string[], name: string) => list.some((x) => x.toLowerCase() === name.toLowerCase())
@@ -81,8 +81,55 @@ function Rows({ items, dot, onRemove, capitalize = false }: { items: string[]; d
   )
 }
 
+/** Ingredients, each with an "Out" toggle for when you run out (kept on the list, skipped by the Maker). */
+function StapleRows({ items, out, onToggle, onRemove }: { items: string[]; out: string[]; onToggle: (s: string) => void; onRemove: (s: string) => void }) {
+  if (!items.length) return <p className="py-3 text-sm text-slate-400">Nothing yet.</p>
+  return (
+    <ul className="mt-2 divide-y divide-slate-100 dark:divide-slate-800/70">
+      {items.map((s) => {
+        const gone = isOut(out, s)
+        return (
+          <li key={s} className="flex items-center gap-3 py-2">
+            <span className={`h-2 w-2 shrink-0 rounded-full ${gone ? 'bg-amber-400' : 'bg-emerald-500'}`} aria-hidden="true" />
+            <span className={`min-w-0 flex-1 break-words ${gone ? 'text-slate-400 line-through decoration-slate-300 dark:text-slate-500 dark:decoration-slate-600' : ''}`}>{s}</span>
+            <button
+              type="button"
+              aria-pressed={gone}
+              aria-label={gone ? `${s} is out. Mark as back in stock` : `Mark ${s} as ran out`}
+              onClick={() => onToggle(s)}
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+                gone
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200'
+                  : 'text-slate-500 ring-1 ring-slate-200 dark:text-slate-400 dark:ring-slate-700'
+              }`}
+            >
+              {gone ? 'Ran out' : 'Out?'}
+            </button>
+            <button
+              type="button"
+              aria-label={`Remove ${s}`}
+              className="shrink-0 rounded-full px-2 py-1 text-slate-400 hover:text-rose-600"
+              onClick={() => onRemove(s)}
+            >
+              ✕
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 export default function Staples({ data }: { data: MealsData }) {
-  const { staples, equipment } = data
+  const { staples, staplesOut, equipment } = data
+  // Only count "out" entries that are still on the list.
+  const outNow = staples.filter((s) => isOut(staplesOut, s))
+  const toggleOut = (s: string) =>
+    void editStaplesOut((out) => (isOut(out, s) ? out.filter((x) => x !== s.toLowerCase()) : [...out, s]))
+  const removeStaple = (s: string) => {
+    void saveStaples(staples.filter((x) => x !== s))
+    void editStaplesOut((out) => out.filter((x) => x !== s.toLowerCase()))
+  }
   const [browsing, setBrowsing] = useState(false)
 
   const allCommon = COMMON_EQUIPMENT.flatMap((g) => g.items)
@@ -111,10 +158,31 @@ export default function Staples({ data }: { data: MealsData }) {
           <h2 className="font-semibold">
             Ingredients on hand <span className="text-sm font-normal text-slate-400">{staples.length}</span>
           </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">Foods you always keep. Recipes are built around these first.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Foods you always keep. Recipes are built around these first. Tap “Out?” when you run out and the Maker won't count on it.
+          </p>
         </div>
-        <AddRow placeholder="e.g. eggs, rice, chicken breast" label="Add ingredient" onAdd={(items) => void saveStaples(addTo(staples, items))} />
-        <Rows items={staples} dot="bg-emerald-500" onRemove={(s) => void saveStaples(staples.filter((x) => x !== s))} />
+        <AddRow
+          placeholder="e.g. eggs, rice, chicken breast"
+          label="Add ingredient"
+          onAdd={(items) => {
+            void saveStaples(addTo(staples, items))
+            // Adding something you already list means it's back in stock.
+            const back = new Set(items.map((i) => i.trim().toLowerCase()))
+            void editStaplesOut((out) => out.filter((x) => !back.has(x)))
+          }}
+        />
+        {outNow.length > 0 && (
+          <div className="mt-3 flex items-center gap-3 rounded-xl bg-amber-50 px-3 py-2 text-sm dark:bg-amber-950/40">
+            <p className="min-w-0 flex-1 text-amber-900 dark:text-amber-200">
+              <span className="font-medium">Ran out of {outNow.length}:</span> {outNow.join(', ')}
+            </p>
+            <button type="button" className="shrink-0 text-sm font-medium text-indigo-600 dark:text-indigo-400" onClick={() => void saveStaplesOut([])}>
+              Restocked
+            </button>
+          </div>
+        )}
+        <StapleRows items={staples} out={staplesOut} onToggle={toggleOut} onRemove={removeStaple} />
       </section>
 
       <section aria-label="Kitchen equipment">

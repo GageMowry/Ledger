@@ -92,6 +92,34 @@ export interface Outfit {
   createdAt: number
 }
 
+/** One line of a packing list: a closet item (itemId) or anything else to bring. */
+export interface PackLine {
+  key: string // stable id within the trip
+  itemId?: number // closet item; name/category are copied so the line survives the item being deleted
+  category?: ClothingCategory
+  name: string
+  qty: number
+  buy?: boolean // something he doesn't own that the trip needs
+  note?: string
+  packed: boolean
+}
+
+/** A packing list for a trip. Planning only; nothing about what was worn. */
+export interface Trip {
+  id: number
+  place: string
+  startDate?: string // YYYY-MM-DD
+  nights: number
+  occasions: string[]
+  plans?: string
+  weather?: string // what the list was planned for (typed, looked up, or typical)
+  summary?: string // the AI's short note about the list
+  sources?: { uri: string; title: string }[]
+  lines: PackLine[]
+  createdAt: number
+  updatedAt: number
+}
+
 export class LedgerDB extends Dexie {
   settings!: EntityTable<Setting, 'key'>
   tasks!: EntityTable<Task, 'id'>
@@ -101,6 +129,7 @@ export class LedgerDB extends Dexie {
   meals!: EntityTable<Meal, 'id'>
   clothes!: EntityTable<ClothingItem, 'id'>
   outfits!: EntityTable<Outfit, 'id'>
+  trips!: EntityTable<Trip, 'id'>
 
   constructor() {
     super('ledger')
@@ -135,6 +164,9 @@ export class LedgerDB extends Dexie {
     this.version(5).stores({
       clothes: '++id, category, createdAt',
       outfits: '++id, createdAt',
+    })
+    this.version(6).stores({
+      trips: '++id, startDate, createdAt',
     })
   }
 }

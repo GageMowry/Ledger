@@ -6,6 +6,8 @@ import {
   formatMinutes,
   getPrefs,
   getStaples,
+  getStaplesOut,
+  saveStaplesOut,
   getTargets,
   getTimeLimit,
   removeFrom,
@@ -50,6 +52,8 @@ export interface ListUpdates {
   removeAllergies?: string[]
   addStaples?: string[]
   removeStaples?: string[]
+  markOut?: string[] // staples the user ran out of
+  markBack?: string[] // staples back in stock
   addEquipment?: string[]
   removeEquipment?: string[]
   // Settings the Meal Maker may change when asked.
@@ -167,7 +171,9 @@ export const REPLY_SCHEMA = {
         removeDislikes: STR_LIST,
         removeAllergies: STR_LIST,
         addStaples: STR_LIST,
-        removeStaples: STR_LIST,
+        removeStaples: { ...STR_LIST, description: 'Staples the user no longer wants to keep at all' },
+        markOut: { ...STR_LIST, description: 'Staples the user ran out of for now (stay on the list, marked out)' },
+        markBack: { ...STR_LIST, description: 'Staples the user restocked / bought again' },
         addEquipment: { ...STR_LIST, description: 'Kitchen tools/appliances the user says they have, lowercase (e.g. "air fryer")' },
         removeEquipment: { ...STR_LIST, description: 'Kitchen tools/appliances the user says they no longer have' },
         timeLimitMin: {
@@ -207,9 +213,16 @@ export function buildSystemPrompt(d: MealsData): string {
         .filter(Boolean)
         .join(', ')
     : ''
+  const outSet = new Set(d.staplesOut)
+  const inStock = d.staples.filter((s) => !outSet.has(s.toLowerCase()))
+  const ranOut = d.staples.filter((s) => outSet.has(s.toLowerCase()))
   return `You are the Meal Maker in a personal app. You help one person (a ${formatHeight(HEIGHT_IN)} man) decide what to cook and you write clear, reliable recipes.
 
-KITCHEN STAPLES (always on hand): ${list(d.staples)}
+KITCHEN STAPLES (on hand now): ${list(inStock)}${
+    ranOut.length
+      ? `\nRAN OUT (normally kept, missing right now): ${ranOut.join(', ')}. Don't count on these: prefer recipes without them; if one is truly needed, set fromStaples false and mention in "reply" that he's out of it.`
+      : ''
+  }
 KITCHEN EQUIPMENT AVAILABLE: ${list(d.equipment.have)}; plus basics: ${BASIC_TOOLS}.
 EQUIPMENT RULE: only use cooking methods and tools from that equipment list and the basics. If something they don't have would help (e.g. no air fryer, no blender), adapt the method to what they do have. If a request truly needs missing equipment, say so in "reply" and offer an alternative.
 LIKES: ${list(d.prefs.likes)}
@@ -236,7 +249,8 @@ Settings skill:
 - Only change these when the user asks or clearly confirms, and say what you changed in "reply". If they ask for a target without a number (e.g. "set my calories for a cut"), suggest a number and ask them to confirm before setting it.
 
 Preference skill:
-- When the user states a like, dislike, allergy, something they always keep or ran out of, or a kitchen tool they got or no longer have, record it in "updates" (addLikes, addDislikes, addAllergies, addStaples, removeStaples, addEquipment, removeEquipment, etc.). Use short lowercase food names. Don't repeat items already on a list.
+- When the user states a like, dislike, allergy, something they always keep, or a kitchen tool they got or no longer have, record it in "updates" (addLikes, addDislikes, addAllergies, addStaples, removeStaples, addEquipment, removeEquipment, etc.).
+- "I ran out of X" / "I'm out of X" for a staple → markOut (not removeStaples). "I bought / restocked X" → markBack. removeStaples is only for things he won't keep anymore. Use short lowercase food names. Don't repeat items already on a list.
 - If the user asks you to build out or fill in their preferences, interview them: ask 2-4 quick, specific questions per turn (proteins, vegetables, cuisines, spice level, textures, allergies, what's always in the kitchen), and record their answers in "updates" on the next turn. Keep going until they say stop.
 - Never add something the user didn't say or confirm.`
 }
@@ -342,6 +356,22 @@ export async function applyUpdates(u: ListUpdates | null | undefined): Promise<L
   if (sa.length) applied.addStaples = sa
   if (sr.length) applied.removeStaples = sr
 
+  // ---- Ran out / restocked (only for things on the staples list) ----
+  const out = await getStaplesOut()
+  const onList = (x: string) => nextStaples.some((s) => s.toLowerCase() === x)
+  const lc = (xs?: string[]) => [...new Set((xs ?? []).map((x) => x.trim().toLowerCase()).filter(Boolean))]
+  const markOut = lc(u.markOut).filter((x) => onList(x) && !out.includes(x))
+  // Restocked, newly added, or removed staples are no longer "out".
+  const clear = new Set([...lc(u.markBack), ...lc(sa), ...lc(sr)])
+  const markBack = out.filter((x) => clear.has(x) && !markOut.includes(x))
+  if (markOut.length) applied.markOut = markOut
+  if (lc(u.markBack).length) {
+    const shown = markBack.filter((x) => lc(u.markBack).includes(x))
+    if (shown.length) applied.markBack = shown
+  }
+  const nextOut = [...out.filter((x) => !markBack.includes(x)), ...markOut]
+  const outChanged = markOut.length > 0 || markBack.length > 0
+
   // ---- Equipment ----
   const eq = await getEquipment()
   const lower = (xs: string[]) => xs.map((x) => x.trim().toLowerCase()).filter(Boolean)
@@ -390,9 +420,11 @@ export async function applyUpdates(u: ListUpdates | null | undefined): Promise<L
   }
   if (Object.keys(sc).length) applied.settingsChange = sc
 
-  if (!Object.keys(applied).length) return undefined
+  if (!Object.keys(applied).length && !outChanged) return undefined
   await savePrefs(next)
   if (sa.length || sr.length) await saveStaples(nextStaples)
+  if (outChanged) await saveStaplesOut(nextOut)
+  if (!Object.keys(applied).length) return undefined
   if (eqAdd.length || eqRemove.length) await saveEquipment(nextEquipment)
   if (sc.nextTimeLimit) await saveTimeLimit(sc.nextTimeLimit)
   if (sc.nextTargets) await saveTargets(sc.nextTargets)
@@ -414,6 +446,8 @@ export async function undoUpdates(a: ListUpdates): Promise<void> {
     removeAllergies: a.addAllergies,
     addStaples: a.removeStaples,
     removeStaples: a.addStaples,
+    markOut: a.markBack,
+    markBack: a.markOut,
     addEquipment: a.removeEquipment,
     removeEquipment: a.addEquipment,
   })
@@ -430,6 +464,8 @@ export function describeUpdates(a: ListUpdates): string[] {
   push('Removed from', 'Dislikes', a.removeDislikes)
   push('Removed from', 'Allergies', a.removeAllergies)
   push('Removed from', 'Staples', a.removeStaples)
+  if (a.markOut?.length) out.push(`Marked as ran out: ${a.markOut.join(', ')}`)
+  if (a.markBack?.length) out.push(`Back in stock: ${a.markBack.join(', ')}`)
   push('Added to', 'Equipment', a.addEquipment)
   push('Removed from', 'Equipment', a.removeEquipment)
   const sc = a.settingsChange
