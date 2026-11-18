@@ -46,16 +46,16 @@ export default function SectionRibbon<T extends string>({
   return (
     <div
       ref={ref}
-      className={`sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-[6] -mx-4 px-4 py-2 transition-[transform,opacity] duration-200 ease-out ${
+      // While floating it is a solid strip under the header, so the page
+      // scrolls cleanly beneath it instead of showing around the tabs.
+      className={`sticky top-[calc(3.5rem+env(safe-area-inset-top))] z-[6] -mx-4 border-b px-4 py-2 transition-[transform,opacity] duration-200 ease-out ${
         shown ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-[120%] opacity-0'
-      }`}
+      } ${floating ? 'border-slate-200 bg-white/95 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95' : 'border-transparent'}`}
     >
       <div
         role="tablist"
-        className={`grid gap-1 rounded-xl p-1 transition-shadow ${
-          floating
-            ? 'bg-white/90 shadow-lg ring-1 shadow-slate-900/10 ring-slate-200 backdrop-blur dark:bg-slate-800/90 dark:ring-slate-700'
-            : 'bg-slate-200/70 dark:bg-slate-800'
+        className={`grid gap-1 rounded-xl p-1 ${
+          floating ? 'bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700' : 'bg-slate-200/70 dark:bg-slate-800'
         }`}
         style={{ gridTemplateColumns: `repeat(${sections.length}, minmax(0, 1fr))` }}
       >

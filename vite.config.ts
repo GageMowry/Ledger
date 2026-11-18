@@ -3,9 +3,10 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig(({ command }) => {
+export default defineConfig(({ command, isPreview }) => {
   // The built site is served from https://gagemowry.github.io/Ledger/
-  const base = command === 'build' ? '/Ledger/' : '/'
+  // (`vite preview` serves that same build locally, so it uses the same path).
+  const base = command === 'build' || isPreview ? '/Ledger/' : '/'
 
   return {
     base,

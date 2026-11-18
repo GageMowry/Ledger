@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useDeferredValue, useMemo, useState } from 'react'
 import type { ClothingCategory, ClothingItem } from '../../db'
 import { CATEGORIES, CATEGORY_BY_KEY, OCCASIONS, deleteItem, readView, saveItem, writeView } from '../../closet'
 import Sheet from '../../components/Sheet'
@@ -70,13 +70,16 @@ export default function Items({
 
   const open = items.find((i) => i.id === openId) ?? null
 
+  // The search box updates at once; the (heavier) photo grid follows a beat
+  // later if the phone is busy, so typing never stutters.
+  const deferredQuery = useDeferredValue(query)
   const list = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = deferredQuery.trim().toLowerCase()
     return items
       .filter((i) => cat === 'all' || i.category === cat)
       .filter((i) => !q || [i.name, i.color, i.pattern, i.fit, i.description].some((s) => s?.toLowerCase().includes(q)))
       .sort((a, b) => CAT_ORDER[a.category] - CAT_ORDER[b.category] || a.name.localeCompare(b.name))
-  }, [items, cat, query])
+  }, [items, cat, deferredQuery])
 
   const counts = useMemo(() => {
     const c: Partial<Record<ClothingCategory, number>> = {}

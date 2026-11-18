@@ -48,17 +48,19 @@ function LiftCard({ def, entries }: { def: (typeof LIFTS)[number]; entries: Lift
         <LineChart points={sorted} format={(v) => fmtNum(v)} label={def.label} />
       </div>
 
+      {/* On very narrow phones the date and Log button drop to a second line
+          rather than squeezing the number box. */}
       <form
-        className="mt-3 flex gap-2"
+        className="mt-3 flex flex-wrap gap-2"
         onSubmit={(e) => {
           e.preventDefault()
           void save()
         }}
       >
         <input
-          className="field min-w-0 flex-1"
+          className="field min-w-[5.5rem] grow-[999] basis-0"
           inputMode="decimal"
-          placeholder={unit === 'reps' ? 'Reps' : 'Weight (lbs)'}
+          placeholder={unit === 'reps' ? 'Reps' : 'Weight'}
           aria-label={`${def.label} (${unit})`}
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -71,7 +73,7 @@ function LiftCard({ def, entries }: { def: (typeof LIFTS)[number]; entries: Lift
           onChange={(e) => setDate(e.target.value)}
           aria-label="Date"
         />
-        <button type="submit" className="btn-primary shrink-0" disabled={!(Number(input) > 0)}>
+        <button type="submit" className="btn-primary shrink-0 grow" disabled={!(Number(input) > 0)}>
           Log
         </button>
       </form>

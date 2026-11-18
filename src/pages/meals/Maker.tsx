@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { getSetting } from '../../db'
+import { warmUp } from '../../gemini'
 import { navigate } from '../../router'
 import type { MealsData } from '../../useMealsData'
 import RecipeView from '../../components/RecipeView'
@@ -19,7 +20,7 @@ import {
 } from '../../mealMaker'
 import type { Meal } from '../../db'
 import { SearchedBadge, Sources } from '../../components/WebSearch'
-import ChatComposer, { ComposerSpacer, MSG_SCROLL_MARGIN, useChatScroll } from '../../components/ChatComposer'
+import ChatComposer, { ChatInput, ComposerSpacer, MSG_SCROLL_MARGIN, TypingBubble, useChatScroll } from '../../components/ChatComposer'
 
 const STARTERS = [
   'Quick high-protein dinner with what I have',
@@ -85,12 +86,32 @@ function ModelMessage({
   onChange: (patch: Partial<ChatMessage>) => void
 }) {
   const r = m.reply?.recipe
+  // Built once per recipe so the card isn't rebuilt on unrelated redraws.
+  const recipeView = useMemo(
+    () =>
+      r
+        ? {
+            name: r.name,
+            servings: r.servings,
+            prepMin: r.prepMin,
+            cookMin: r.cookMin,
+            calories: r.calories ?? undefined,
+            protein: r.protein ?? undefined,
+            carbs: r.carbs ?? undefined,
+            fat: r.fat ?? undefined,
+            ingredients: r.ingredients.map((i) => ({ text: `${i.amount} ${i.item}`.trim(), staple: i.fromStaples })),
+            steps: r.steps,
+            notes: r.tips ?? undefined,
+          }
+        : null,
+    [r],
+  )
   const changes = m.applied ? describeUpdates(m.applied) : []
   const [saving, setSaving] = useState(false)
 
   if (m.error) {
     return (
-      <div className="rounded-2xl rounded-tl-md bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+      <div className="rounded-2xl rounded-tl-md bg-rose-50 px-4 py-3 text-sm break-words text-rose-700 dark:bg-rose-950 dark:text-rose-300">
         {m.text}
       </div>
     )
@@ -98,7 +119,7 @@ function ModelMessage({
 
   return (
     <div className="space-y-2">
-      <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
+      <div className="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm break-words shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
         {m.text}
       </div>
       <Sources sources={m.sources} />
@@ -131,23 +152,9 @@ function ModelMessage({
 
       {m.reply?.macroEstimate && <EstimateCard m={m} target={target} onChange={onChange} />}
 
-      {r && (
+      {r && recipeView && (
         <div className="card">
-          <RecipeView
-            r={{
-              name: r.name,
-              servings: r.servings,
-              prepMin: r.prepMin,
-              cookMin: r.cookMin,
-              calories: r.calories ?? undefined,
-              protein: r.protein ?? undefined,
-              carbs: r.carbs ?? undefined,
-              fat: r.fat ?? undefined,
-              ingredients: r.ingredients.map((i) => ({ text: `${i.amount} ${i.item}`.trim(), staple: i.fromStaples })),
-              steps: r.steps,
-              notes: r.tips ?? undefined,
-            }}
-          />
+          <RecipeView r={recipeView} />
           <div className="mt-4">
             {m.savedMealId ? (
               <p className="text-center text-sm font-medium text-emerald-600 dark:text-emerald-400">★ Saved to favorites</p>
@@ -173,6 +180,36 @@ function ModelMessage({
   )
 }
 
+/**
+ * One message in the conversation. Memoized, so a message only redraws when it
+ * changes itself, not on every streamed word or state change around it.
+ */
+const MessageRow = memo(function MessageRow({
+  m,
+  target,
+  onPatch,
+}: {
+  m: ChatMessage
+  target?: Meal
+  onPatch: (id: string, patch: Partial<ChatMessage>) => void
+}) {
+  if (m.role === 'user') {
+    return (
+      <div data-msg-id={m.id} className={`flex justify-end ${MSG_SCROLL_MARGIN}`}>
+        <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm break-words whitespace-pre-wrap text-white">
+          {m.searched && <SearchedBadge />}
+          {m.text}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div data-msg-id={m.id} className={`max-w-full ${MSG_SCROLL_MARGIN}`}>
+      <ModelMessage m={m} target={target} onChange={(patch) => onPatch(m.id, patch)} />
+    </div>
+  )
+})
+
 export default function Maker({
   data,
   pendingEstimate,
@@ -184,21 +221,41 @@ export default function Maker({
 }) {
   const hasKey = useLiveQuery(async () => !!(await getSetting<string>('geminiApiKey', '')), [])
   const [messages, setMessages] = useState<ChatMessage[] | null>(null)
-  const [text, setText] = useState('')
+  // Always the latest messages, for code that runs after an await.
+  const messagesRef = useRef<ChatMessage[] | null>(null)
   const [busy, setBusy] = useState(false)
+  const [searching, setSearching] = useState(false)
+  // The reply sentence while it is still streaming in.
+  const [draft, setDraft] = useState<string | null>(null)
   const [web, setWeb] = useState(false)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
-    void loadChat().then(setMessages)
+    void loadChat().then((m) => {
+      messagesRef.current = m
+      setMessages(m)
+    })
   }, [])
+
+  // Open the connection to Gemini as soon as the screen is up.
+  useEffect(() => {
+    if (hasKey) warmUp()
+  }, [hasKey])
 
   useChatScroll(messages, busy)
 
-  const update = (next: ChatMessage[]) => {
+  const update = useCallback((next: ChatMessage[]) => {
+    messagesRef.current = next
     setMessages(next)
     void saveChat(next)
-  }
+  }, [])
+
+  const patch = useCallback(
+    (id: string, p: Partial<ChatMessage>) => {
+      const cur = messagesRef.current
+      if (cur) update(cur.map((x) => (x.id === id ? { ...x, ...p } : x)))
+    },
+    [update],
+  )
 
   // "Estimate macros" from Favorites lands here with the recipe ready to send.
   useEffect(() => {
@@ -210,7 +267,7 @@ export default function Maker({
 
   async function send(prompt: string, opts?: { display?: string; estimateFor?: number; base?: ChatMessage[]; search?: boolean }) {
     const p = prompt.trim()
-    const history = opts?.base ?? messages
+    const history = opts?.base ?? messagesRef.current
     if (!p || busy || !history) return
     const search = opts?.search ?? web
     const userMsg: ChatMessage = {
@@ -223,17 +280,21 @@ export default function Maker({
     }
     const withUser = [...history, userMsg]
     update(withUser)
-    setText('')
-    if (inputRef.current) inputRef.current.style.height = 'auto'
+    setDraft(null)
+    setSearching(search)
     setBusy(true)
+    // Add the answer to whatever the conversation is by then: a button tapped
+    // on an older message while waiting must not be undone.
+    const append = (m: ChatMessage) => update([...(messagesRef.current ?? withUser), m])
     try {
-      const { reply, sources } = await askMealMaker(data, history, userMsg.prompt ?? userMsg.text, { search })
+      const { reply, sources } = await askMealMaker(data, history, userMsg.prompt ?? userMsg.text, { search, onReply: setDraft })
       const applied = await applyUpdates(reply.updates)
-      update([...withUser, { id: uid(), role: 'model', text: reply.reply, reply, applied, ...(sources?.length ? { sources } : {}) }])
+      append({ id: uid(), role: 'model', text: reply.reply, reply, applied, ...(sources?.length ? { sources } : {}) })
     } catch (e) {
-      update([...withUser, { id: uid(), role: 'model', text: (e as Error).message, error: true }])
+      append({ id: uid(), role: 'model', text: (e as Error).message, error: true })
     } finally {
       setBusy(false)
+      setDraft(null)
     }
   }
 
@@ -279,34 +340,13 @@ export default function Maker({
       ) : null}
 
       <div className="space-y-4">
-        {messages.map((m, idx) =>
-          m.role === 'user' ? (
-            <div key={m.id} data-msg-id={m.id} className={`flex justify-end ${MSG_SCROLL_MARGIN}`}>
-              <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">
-                {m.searched && <SearchedBadge />}
-                {m.text}
-              </div>
-            </div>
-          ) : (
-            <div key={m.id} data-msg-id={m.id} className={`max-w-full ${MSG_SCROLL_MARGIN}`}>
-              <ModelMessage
-                m={m}
-                target={(() => {
-                  const id = estimateTarget(messages, idx)
-                  return id ? data.meals.find((x) => x.id === id) : undefined
-                })()}
-                onChange={(patch) => update(messages.map((x) => (x.id === m.id ? { ...x, ...patch } : x)))}
-              />
-            </div>
-          ),
-        )}
-        {busy && (
-          <div className="inline-flex items-center gap-1.5 rounded-2xl rounded-tl-md bg-white px-4 py-3 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800" aria-label="Thinking">
-            {[0, 1, 2].map((i) => (
-              <span key={i} className="h-2 w-2 animate-bounce rounded-full bg-slate-400" style={{ animationDelay: `${i * 0.15}s` }} />
-            ))}
-          </div>
-        )}
+        {messages.map((m, idx) => {
+          const targetId = m.role === 'model' ? estimateTarget(messages, idx) : undefined
+          return (
+            <MessageRow key={m.id} m={m} target={targetId ? data.meals.find((x) => x.id === targetId) : undefined} onPatch={patch} />
+          )
+        })}
+        {busy && <TypingBubble text={draft} label={draft ? undefined : searching ? 'Searching the web' : undefined} />}
         {lastError && lastUser && !busy && (
           <button
             type="button"
@@ -334,36 +374,7 @@ export default function Maker({
         canReset={messages.length > 0 && !busy}
         onNewChat={() => confirm('Start a new conversation? This one will be cleared.') && update([])}
       >
-      <form
-        className="flex items-end gap-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void send(text)
-        }}
-      >
-        <textarea
-          ref={inputRef}
-          rows={1}
-          className="field max-h-32 resize-none"
-          placeholder="Ask for a meal…"
-          aria-label="Message the Meal Maker"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value)
-            e.target.style.height = 'auto'
-            e.target.style.height = `${e.target.scrollHeight}px`
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) {
-              e.preventDefault()
-              void send(text)
-            }
-          }}
-        />
-        <button type="submit" className="btn-primary h-[46px] shrink-0" disabled={busy || !text.trim()}>
-          Send
-        </button>
-      </form>
+        <ChatInput placeholder="Ask for a meal…" label="Message the Meal Maker" busy={busy} onSend={(t) => void send(t)} />
       </ChatComposer>
     </div>
   )

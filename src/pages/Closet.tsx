@@ -28,11 +28,11 @@ function readSection(): Section {
 }
 
 export default function Closet() {
-  const data = useLiveQuery(async () => ({
-    items: await db.clothes.toArray(),
-    outfits: await db.outfits.toArray(),
-    hasKey: await hasGeminiKey(),
-  }))
+  // Three separate live queries: saving an outfit or changing a setting must
+  // not re-read every clothing photo.
+  const items = useLiveQuery(() => db.clothes.toArray(), [])
+  const outfits = useLiveQuery(() => db.outfits.toArray(), [])
+  const hasKey = useLiveQuery(hasGeminiKey, [])
   const [section, setSection] = useState<Section>(readSection)
   const [pending, setPending] = useState<{ display: string; prompt: string } | null>(null)
 
@@ -49,9 +49,9 @@ export default function Closet() {
     <div className="-mt-2 space-y-4">
       <SectionRibbon sections={SECTIONS} value={section} onChange={setSection} />
 
-      {data && section === 'items' && (
+      {items && section === 'items' && (
         <Items
-          items={data.items}
+          items={items}
           onBuildFit={(item, occasion) => {
             setPending({
               display: `${occasion} fit around my ${item.name}`,
@@ -61,9 +61,9 @@ export default function Closet() {
           }}
         />
       )}
-      {data && section === 'outfits' && <Outfits items={data.items} outfits={data.outfits} />}
-      {data && section === 'maker' && (
-        <Stylist items={data.items} hasKey={data.hasKey} pending={pending} onPendingConsumed={() => setPending(null)} />
+      {items && outfits && section === 'outfits' && <Outfits items={items} outfits={outfits} />}
+      {items && hasKey !== undefined && section === 'maker' && (
+        <Stylist items={items} hasKey={hasKey} pending={pending} onPendingConsumed={() => setPending(null)} />
       )}
     </div>
   )

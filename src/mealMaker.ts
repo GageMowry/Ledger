@@ -1,6 +1,6 @@
 import { db, getSetting, setSetting, type Meal } from './db'
 import { HEIGHT_IN, formatHeight } from './body'
-import { chatJSON, chatJSONWithSearch, type ChatTurn, type WebSource } from './gemini'
+import { chatJSON, chatJSONWithSearch, partialStringField, type ChatTurn, type WebSource } from './gemini'
 import {
   addTo,
   formatMinutes,
@@ -107,6 +107,8 @@ const STR_LIST = { type: 'ARRAY', items: STR }
 
 export const REPLY_SCHEMA = {
   type: 'OBJECT',
+  // "reply" is written first so it can be shown while the rest is still streaming.
+  propertyOrdering: ['reply', 'recipe', 'macroEstimate', 'updates'],
   properties: {
     reply: { ...STR, description: 'Short conversational answer, 1-3 sentences. No recipe text here.' },
     recipe: {
@@ -282,18 +284,27 @@ export async function askMealMaker(
   data: MealsData,
   history: ChatMessage[],
   prompt: string,
-  opts?: { search?: boolean },
+  opts?: { search?: boolean; /** Gets the reply sentence as it is being written. */ onReply?: (soFar: string) => void },
 ): Promise<{ reply: MakerReply; sources?: WebSource[] }> {
-  const turns = [...toTurns(history.slice(-16)), { role: 'user' as const, parts: [{ text: prompt }] }]
+  const past = toTurns(history.slice(-16))
+  while (past[0]?.role === 'model') past.shift() // a conversation sent to Gemini starts with the user
+  const turns = [...past, { role: 'user' as const, parts: [{ text: prompt }] }]
   const system = buildSystemPrompt(data)
+  const onReply = opts?.onReply
+  const onPartial = onReply
+    ? (json: string) => {
+        const soFar = partialStringField(json, 'reply')
+        if (soFar) onReply(soFar)
+      }
+    : undefined
   let r: MakerReply
   let sources: WebSource[] | undefined
   if (opts?.search) {
-    const out = await chatJSONWithSearch<MakerReply>(system, turns, REPLY_SCHEMA)
+    const out = await chatJSONWithSearch<MakerReply>(system, turns, REPLY_SCHEMA, onPartial)
     r = out.result
     sources = out.sources
   } else {
-    r = await chatJSON<MakerReply>(system, turns, REPLY_SCHEMA)
+    r = await chatJSON<MakerReply>(system, turns, REPLY_SCHEMA, onPartial)
   }
   if (typeof r?.reply !== 'string') throw new Error('Gemini sent a reply in an unexpected format. Try again.')
   return { reply: r, sources }

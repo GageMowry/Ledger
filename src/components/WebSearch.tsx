@@ -26,7 +26,7 @@ export function WebToggle({ on, onChange }: { on: boolean; onChange: (v: boolean
   }, [empty, on, onChange])
 
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex min-w-0 items-center gap-2 text-xs">
       <button
         type="button"
         role="switch"
@@ -42,13 +42,15 @@ export function WebToggle({ on, onChange }: { on: boolean; onChange: (v: boolean
         <GlobeIcon className="h-4 w-4" />
         Web {on ? 'on' : 'off'}
       </button>
-      <span className="text-slate-500 dark:text-slate-400">
+      {/* Kept short, and allowed to wrap onto two tight lines on narrow phones,
+          so it never pushes into the New chat button beside it. */}
+      <span className="min-w-0 leading-tight text-slate-500 dark:text-slate-400">
         {usage === undefined
           ? ''
           : empty
-            ? `No web searches left today (${usage.limit}/day)`
+            ? `None left today (${usage.limit}/day)`
             : on
-              ? `${left} of ${usage.limit} searches left today · uses Gemini 2.5 Flash`
+              ? `${left} of ${usage.limit} left today · 2.5 Flash`
               : `${left} of ${usage.limit} left today`}
       </span>
     </div>

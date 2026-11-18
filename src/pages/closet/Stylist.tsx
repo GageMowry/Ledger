@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { ClothingItem } from '../../db'
+import { warmUp } from '../../gemini'
 import { navigate } from '../../router'
 import { CATEGORY_BY_KEY, blobToDataURL, boxToRegion, makeThumb, prepareForAI, saveItem } from '../../closet'
 import {
@@ -12,7 +13,14 @@ import {
 } from '../../closetAI'
 import ClothingThumb from '../../components/ClothingThumb'
 import { SearchedBadge, Sources } from '../../components/WebSearch'
-import ChatComposer, { ComposerSpacer, MSG_SCROLL_MARGIN, useChatScroll } from '../../components/ChatComposer'
+import ChatComposer, {
+  ChatInput,
+  ComposerSpacer,
+  MSG_SCROLL_MARGIN,
+  TypingBubble,
+  useChatScroll,
+  type ChatInputHandle,
+} from '../../components/ChatComposer'
 import { CameraIcon } from '../../components/Icons'
 
 const STARTERS = ['Outfit for work tomorrow', 'Casual weekend fit', 'Going out tonight', 'What am I missing in my wardrobe?']
@@ -26,7 +34,7 @@ async function dataURLToBlob(url: string): Promise<Blob> {
 function Bubble({ children, tone = 'plain' }: { children: React.ReactNode; tone?: 'plain' | 'error' }) {
   return (
     <div
-      className={`rounded-2xl rounded-tl-md px-4 py-3 text-sm ${
+      className={`rounded-2xl rounded-tl-md px-4 py-3 text-sm break-words ${
         tone === 'error'
           ? 'bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
           : 'bg-white shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800'
@@ -157,6 +165,36 @@ function ModelMessage({ m, items, onChange }: { m: ClosetMessage; items: Clothin
   )
 }
 
+/**
+ * One message in the conversation. Memoized, so a message only redraws when it
+ * changes itself, not on every streamed word or state change around it.
+ */
+const MessageRow = memo(function MessageRow({
+  m,
+  items,
+  onPatch,
+}: {
+  m: ClosetMessage
+  items: ClothingItem[]
+  onPatch: (id: string, patch: Partial<ClosetMessage>) => void
+}) {
+  if (m.role === 'user') {
+    return (
+      <div data-msg-id={m.id} className={`flex justify-end ${MSG_SCROLL_MARGIN}`}>
+        <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm break-words whitespace-pre-wrap text-white">
+          {m.searched && <SearchedBadge />}
+          {m.text}
+        </div>
+      </div>
+    )
+  }
+  return (
+    <div data-msg-id={m.id} className={MSG_SCROLL_MARGIN}>
+      <ModelMessage m={m} items={items} onChange={(patch) => onPatch(m.id, patch)} />
+    </div>
+  )
+})
+
 export default function Stylist({
   items,
   hasKey,
@@ -169,22 +207,42 @@ export default function Stylist({
   onPendingConsumed?: () => void
 }) {
   const [messages, setMessages] = useState<ClosetMessage[] | null>(null)
-  const [text, setText] = useState('')
+  // Always the latest messages, for code that runs after an await.
+  const messagesRef = useRef<ClosetMessage[] | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  // The reply sentence while it is still streaming in.
+  const [draft, setDraft] = useState<string | null>(null)
   const [web, setWeb] = useState(false)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputApi = useRef<ChatInputHandle>(null)
   const photoRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    void loadClosetChat().then(setMessages)
+    void loadClosetChat().then((m) => {
+      messagesRef.current = m
+      setMessages(m)
+    })
   }, [])
+
+  // Open the connection to Gemini as soon as the screen is up.
+  useEffect(() => {
+    if (hasKey) warmUp()
+  }, [hasKey])
 
   useChatScroll(messages, busy)
 
-  const update = (next: ClosetMessage[]) => {
+  const update = useCallback((next: ClosetMessage[]) => {
+    messagesRef.current = next
     setMessages(next)
     void saveClosetChat(next)
-  }
+  }, [])
+
+  const patch = useCallback(
+    (id: string, p: Partial<ClosetMessage>) => {
+      const cur = messagesRef.current
+      if (cur) update(cur.map((x) => (x.id === id ? { ...x, ...p } : x)))
+    },
+    [update],
+  )
 
   useEffect(() => {
     if (!pending || !messages || busy || hasKey !== true) return
@@ -193,7 +251,7 @@ export default function Stylist({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, messages === null, hasKey])
 
-  async function send(prompt: string, display?: string, base: ClosetMessage[] | null = messages, search: boolean = web) {
+  async function send(prompt: string, display?: string, base: ClosetMessage[] | null = messagesRef.current, search: boolean = web) {
     const p = prompt.trim()
     if (!p || busy || !base) return
     const userMsg: ClosetMessage = {
@@ -205,27 +263,33 @@ export default function Stylist({
     }
     const withUser = [...base, userMsg]
     update(withUser)
-    setText('')
-    if (inputRef.current) inputRef.current.style.height = 'auto'
+    setDraft(null)
     setBusy(search ? 'Searching the web' : 'Thinking')
+    // Add the answer to whatever the conversation is by then: a button tapped
+    // on an older message while waiting must not be undone.
+    const append = (m: ClosetMessage) => update([...(messagesRef.current ?? withUser), m])
     try {
-      const { reply, sources } = await askStylist(base, p, { search })
-      update([...withUser, { id: uid(), role: 'model', text: reply.reply, reply, ...(sources?.length ? { sources } : {}) }])
+      const { reply, sources } = await askStylist(base, p, { search, items, onReply: setDraft })
+      append({ id: uid(), role: 'model', text: reply.reply, reply, ...(sources?.length ? { sources } : {}) })
     } catch (e) {
-      update([...withUser, { id: uid(), role: 'model', text: (e as Error).message, error: true }])
+      append({ id: uid(), role: 'model', text: (e as Error).message, error: true })
     } finally {
       setBusy(null)
+      setDraft(null)
     }
   }
 
   async function addFromPhoto(file: File) {
-    if (!messages || busy) return
-    const note = text.trim()
+    const current = messagesRef.current
+    if (!current || busy) return
+    const note = inputApi.current?.getText().trim() ?? ''
     const userMsg: ClosetMessage = { id: uid(), role: 'user', text: `Photo: add what I'm wearing${note ? ` (${note})` : ''}`, photoNote: true }
-    const withUser = [...messages, userMsg]
+    const withUser = [...current, userMsg]
     update(withUser)
-    setText('')
+    inputApi.current?.clear()
+    setDraft(null)
     setBusy('Looking at your photo')
+    const append = (m: ClosetMessage) => update([...(messagesRef.current ?? withUser), m])
     try {
       const img = await prepareForAI(file)
       const { reply, items: found } = await detectItems(img.base64, note || undefined)
@@ -240,17 +304,14 @@ export default function Stylist({
           return { ...fields, thumb: await blobToDataURL(thumb), selected: true }
         }),
       )
-      update([
-        ...withUser,
-        {
-          id: uid(),
-          role: 'model',
-          text: detected.length ? reply || `Found ${detected.length} items.` : "I couldn't make out any clothing in that photo. Try a well-lit, full-body shot.",
-          detected,
-        },
-      ])
+      append({
+        id: uid(),
+        role: 'model',
+        text: detected.length ? reply || `Found ${detected.length} items.` : "I couldn't make out any clothing in that photo. Try a well-lit, full-body shot.",
+        detected,
+      })
     } catch (e) {
-      update([...withUser, { id: uid(), role: 'model', text: (e as Error).message, error: true }])
+      append({ id: uid(), role: 'model', text: (e as Error).message, error: true })
     } finally {
       setBusy(null)
     }
@@ -306,28 +367,10 @@ export default function Stylist({
       ) : null}
 
       <div className="space-y-4">
-        {messages.map((m) =>
-          m.role === 'user' ? (
-            <div key={m.id} data-msg-id={m.id} className={`flex justify-end ${MSG_SCROLL_MARGIN}`}>
-              <div className="max-w-[85%] rounded-2xl rounded-tr-md bg-indigo-600 px-4 py-2.5 text-sm text-white">
-                {m.searched && <SearchedBadge />}
-                {m.text}
-              </div>
-            </div>
-          ) : (
-            <div key={m.id} data-msg-id={m.id} className={MSG_SCROLL_MARGIN}>
-              <ModelMessage m={m} items={items} onChange={(patch) => update(messages.map((x) => (x.id === m.id ? { ...x, ...patch } : x)))} />
-            </div>
-          ),
-        )}
-        {busy && (
-          <div className="inline-flex items-center gap-2 rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-500 shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800">
-            {[0, 1, 2].map((i) => (
-              <span key={i} className="h-2 w-2 animate-bounce rounded-full bg-slate-400" style={{ animationDelay: `${i * 0.15}s` }} />
-            ))}
-            <span>{busy}…</span>
-          </div>
-        )}
+        {messages.map((m) => (
+          <MessageRow key={m.id} m={m} items={items} onPatch={patch} />
+        ))}
+        {busy && <TypingBubble text={draft} label={draft ? undefined : busy} />}
         {last?.error && lastUser && !busy && !lastUser.photoNote && (
           <button
             type="button"
@@ -361,45 +404,24 @@ export default function Stylist({
         canReset={messages.length > 0 && !busy}
         onNewChat={() => confirm('Start a new conversation? This one will be cleared.') && update([])}
       >
-      <form
-        className="flex items-end gap-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void send(text)
-        }}
-      >
-        <button
-          type="button"
-          className="btn-secondary h-[46px] w-[46px] shrink-0 px-0 text-lg"
-          aria-label="Add clothes from a photo"
-          disabled={!!busy}
-          onClick={() => photoRef.current?.click()}
-        >
-          <CameraIcon className="mx-auto h-6 w-6" />
-        </button>
-        <textarea
-          ref={inputRef}
-          rows={1}
-          className="field max-h-32 resize-none"
+        <ChatInput
+          ref={inputApi}
           placeholder="Ask for an outfit…"
-          aria-label="Message the outfit Maker"
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value)
-            e.target.style.height = 'auto'
-            e.target.style.height = `${e.target.scrollHeight}px`
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) {
-              e.preventDefault()
-              void send(text)
-            }
-          }}
+          label="Message the outfit Maker"
+          busy={!!busy}
+          onSend={(t) => void send(t)}
+          leading={
+            <button
+              type="button"
+              className="btn-secondary h-[46px] w-[46px] shrink-0 px-0 text-lg"
+              aria-label="Add clothes from a photo"
+              disabled={!!busy}
+              onClick={() => photoRef.current?.click()}
+            >
+              <CameraIcon className="mx-auto h-6 w-6" />
+            </button>
+          }
         />
-        <button type="submit" className="btn-primary h-[46px] shrink-0" disabled={!!busy || !text.trim()}>
-          Send
-        </button>
-      </form>
       </ChatComposer>
     </div>
   )

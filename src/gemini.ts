@@ -41,7 +41,11 @@ export function friendlyError(status: number, raw: string): string {
   return raw
 }
 
-async function geminiFetch(path: string, apiKey: string, init?: RequestInit) {
+const networkError = () =>
+  new Error(navigator.onLine === false ? "You're offline. AI features need an internet connection." : "Couldn't reach Gemini. Check your connection and try again.")
+
+/** Sends a request and returns the raw response once Google has accepted it. */
+async function geminiRequest(path: string, apiKey: string, init?: RequestInit): Promise<Response> {
   let res: Response
   try {
     res = await fetch(`${API}/${path}`, {
@@ -49,7 +53,7 @@ async function geminiFetch(path: string, apiKey: string, init?: RequestInit) {
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey, ...init?.headers },
     })
   } catch {
-    throw new Error(navigator.onLine === false ? "You're offline. AI features need an internet connection." : "Couldn't reach Gemini. Check your connection and try again.")
+    throw networkError()
   }
   if (!res.ok) {
     let message = `${res.status} ${res.statusText}`
@@ -63,7 +67,45 @@ async function geminiFetch(path: string, apiKey: string, init?: RequestInit) {
     err.status = res.status
     throw err
   }
-  return res.json()
+  return res
+}
+
+async function geminiFetch(path: string, apiKey: string, init?: RequestInit) {
+  const res = await geminiRequest(path, apiKey, init)
+  try {
+    return await res.json()
+  } catch {
+    throw networkError()
+  }
+}
+
+// ---------------------------------------------------------------- warm-up
+
+const ORIGIN = 'https://generativelanguage.googleapis.com'
+let warmedAt = 0
+
+/**
+ * Called when an AI screen opens or its text box is focused. Opens the
+ * connection to Google ahead of time and makes sure the model names are
+ * already looked up, so the first message doesn't pay for either.
+ */
+export function warmUp(): void {
+  if (Date.now() - warmedAt < 60_000) return
+  warmedAt = Date.now()
+  try {
+    document.getElementById('gemini-preconnect')?.remove()
+    const link = document.createElement('link')
+    link.id = 'gemini-preconnect'
+    link.rel = 'preconnect'
+    link.href = ORIGIN
+    link.crossOrigin = 'anonymous'
+    document.head.appendChild(link)
+  } catch {
+    /* a hint only; safe to skip */
+  }
+  void resolveModels().catch(() => {
+    /* no key yet, or offline: the real call will report it */
+  })
 }
 
 async function requireKey(): Promise<string> {
@@ -101,48 +143,186 @@ export function pickModel(kind: ModelKind, available: string[]): string | null {
   return family[0] ?? null
 }
 
+let resolving: Promise<ResolvedModels> | null = null
+
 export async function resolveModels(force = false): Promise<ResolvedModels> {
   const cached = await getSetting<ResolvedModels | null>('resolvedModels', null)
   if (!force && cached && Date.now() - cached.checkedAt < 7 * 24 * 3600 * 1000) return cached
-  const apiKey = await requireKey()
-  let ids: string[] = []
+  // One lookup at a time: a warm-up and a first message may ask together.
+  if (resolving) return resolving
+  resolving = (async () => {
+    const apiKey = await requireKey()
+    const fallback: ResolvedModels = { lite: MODEL_RULES.lite.preferred, search: MODEL_RULES.search.preferred, checkedAt: Date.now() }
+    let ids: string[]
+    try {
+      ids = (await listModels(apiKey)).map((m) => m.id)
+    } catch {
+      // Couldn't list models (offline, rate limit): use the preferred names for
+      // now, but don't remember them, so the next call checks again.
+      return fallback
+    }
+    const resolved: ResolvedModels = {
+      lite: pickModel('lite', ids) ?? fallback.lite,
+      search: pickModel('search', ids) ?? fallback.search,
+      checkedAt: Date.now(),
+    }
+    await setSetting('resolvedModels', resolved)
+    return resolved
+  })()
   try {
-    ids = (await listModels(apiKey)).map((m) => m.id)
-  } catch {
-    /* fall back to the preferred ids below */
+    return await resolving
+  } finally {
+    resolving = null
   }
-  const resolved: ResolvedModels = {
-    lite: pickModel('lite', ids) ?? MODEL_RULES.lite.preferred,
-    search: pickModel('search', ids) ?? MODEL_RULES.search.preferred,
-    checkedAt: Date.now(),
-  }
-  await setSetting('resolvedModels', resolved)
-  return resolved
 }
 
-/** POST generateContent, re-resolving the model id once if Google says it doesn't exist. */
-async function generateContent(kind: ModelKind, body: object) {
+/** Runs a request against the model for `kind`, re-resolving the id once if Google says it doesn't exist. */
+async function withModel<R>(kind: ModelKind, run: (model: string, apiKey: string) => Promise<R>): Promise<R> {
   const apiKey = await requireKey()
-  const call = async (force: boolean) => {
-    const model = (await resolveModels(force))[kind]
-    return geminiFetch(`models/${model}:generateContent`, apiKey, { method: 'POST', body: JSON.stringify(body) })
-  }
   try {
-    return await call(false)
+    return await run((await resolveModels())[kind], apiKey)
   } catch (e) {
-    if ((e as { status?: number }).status === 404) return call(true)
+    if ((e as { status?: number }).status === 404) return run((await resolveModels(true))[kind], apiKey)
     throw e
   }
 }
 
-function textOf(data: { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]; promptFeedback?: { blockReason?: string } }) {
-  const cand = data.candidates?.[0]
-  const text = cand?.content?.parts?.map((p) => p.text ?? '').join('')
-  if (!text) {
-    const reason = cand?.finishReason ?? data.promptFeedback?.blockReason
-    throw new Error(reason ? `Gemini returned no answer (${reason}).` : 'Gemini returned an empty response.')
-  }
+/** POST generateContent and return the parsed response. */
+function generateContent(kind: ModelKind, body: object) {
+  return withModel(kind, (model, apiKey) =>
+    geminiFetch(`models/${model}:generateContent`, apiKey, { method: 'POST', body: JSON.stringify(body) }),
+  )
+}
+
+interface GenerateResponse {
+  candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[]
+  promptFeedback?: { blockReason?: string }
+  error?: { code?: number; message?: string }
+}
+
+const partsText = (data: GenerateResponse) =>
+  data.candidates?.[0]?.content?.parts
+    ?.filter((p) => !p.thought)
+    .map((p) => p.text ?? '')
+    .join('') ?? ''
+
+const emptyAnswer = (reason?: string) => new Error(reason ? `Gemini returned no answer (${reason}).` : 'Gemini returned an empty response.')
+
+function textOf(data: GenerateResponse) {
+  const text = partsText(data)
+  if (!text) throw emptyAnswer(data.candidates?.[0]?.finishReason ?? data.promptFeedback?.blockReason)
   return text
+}
+
+/**
+ * Same request as generateContent, but streamed: `onText` gets the text so far
+ * each time more arrives, so the reply can appear while the rest is written.
+ * Returns the full text. If the stream can't be read as expected, it falls
+ * back to one ordinary request.
+ */
+async function generateContentStream(kind: ModelKind, body: object, onText: (soFar: string) => void): Promise<string> {
+  const res = await withModel(kind, (model, apiKey) =>
+    geminiRequest(`models/${model}:streamGenerateContent?alt=sse`, apiKey, { method: 'POST', body: JSON.stringify(body) }),
+  )
+
+  let text = ''
+  let events = 0
+  let reason: string | undefined
+  const onEvent = (payload: string) => {
+    if (!payload || payload === '[DONE]') return
+    let data: GenerateResponse
+    try {
+      data = JSON.parse(payload) as GenerateResponse
+    } catch {
+      return
+    }
+    events += 1
+    if (data.error) throw new Error(friendlyError(data.error.code ?? 500, data.error.message ?? 'Gemini reported an error.'))
+    reason = data.candidates?.[0]?.finishReason ?? data.promptFeedback?.blockReason ?? reason
+    const piece = partsText(data)
+    if (piece) {
+      text += piece
+      onText(text)
+    }
+  }
+
+  // Server-sent events: "data:" lines, with a blank line ending each event.
+  let pending = ''
+  let dataLines: string[] = []
+  const feed = (chunk: string, final = false) => {
+    pending += chunk
+    const lines = pending.split(/\r?\n/)
+    pending = final ? '' : (lines.pop() ?? '')
+    for (const line of lines) {
+      if (line === '') {
+        if (dataLines.length) onEvent(dataLines.join('\n'))
+        dataLines = []
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.slice(5).replace(/^ /, ''))
+      }
+    }
+    if (final && dataLines.length) {
+      onEvent(dataLines.join('\n'))
+      dataLines = []
+    }
+  }
+
+  const reader = res.body?.getReader?.()
+  if (reader) {
+    const decoder = new TextDecoder()
+    for (;;) {
+      let step: ReadableStreamReadResult<Uint8Array>
+      try {
+        step = await reader.read()
+      } catch {
+        throw networkError()
+      }
+      if (step.done) break
+      feed(decoder.decode(step.value, { stream: true }))
+    }
+    feed(decoder.decode(), true)
+  } else {
+    let whole: string
+    try {
+      whole = await res.text()
+    } catch {
+      throw networkError()
+    }
+    feed(whole, true)
+  }
+
+  // Nothing recognisable came back as a stream: ask again the ordinary way.
+  if (events === 0) return textOf(await generateContent(kind, body))
+  if (!text) throw emptyAnswer(reason)
+  return text
+}
+
+/**
+ * Reads a string field out of JSON that is still arriving. Returns what has
+ * been written of it so far (unescaped), or null if the field hasn't started.
+ */
+export function partialStringField(json: string, field: string): string | null {
+  const start = new RegExp(`"${field}"\\s*:\\s*"`).exec(json)
+  if (!start) return null
+  let raw = ''
+  for (let i = start.index + start[0].length; i < json.length; ) {
+    const ch = json[i]
+    if (ch === '"') break
+    if (ch === '\\') {
+      const len = json[i + 1] === 'u' ? 6 : 2
+      if (i + len > json.length) break // escape sequence not complete yet
+      raw += json.slice(i, i + len)
+      i += len
+    } else {
+      raw += ch
+      i += 1
+    }
+  }
+  try {
+    return JSON.parse(`"${raw}"`) as string
+  } catch {
+    return null
+  }
 }
 
 // ---------------------------------------------------------------- calls
@@ -158,13 +338,19 @@ export interface ChatTurn {
  * Multi-turn call on Flash-Lite with a system prompt and a JSON response
  * schema, so the reply always parses into the same shape.
  */
-export async function chatJSON<T>(system: string, turns: ChatTurn[], schema: object): Promise<T> {
-  const data = await generateContent('lite', {
+export async function chatJSON<T>(
+  system: string,
+  turns: ChatTurn[],
+  schema: object,
+  /** When given, the reply is streamed and this gets the raw JSON text so far. */
+  onPartial?: (jsonSoFar: string) => void,
+): Promise<T> {
+  const body = {
     systemInstruction: { parts: [{ text: system }] },
     contents: turns,
     generationConfig: { responseMimeType: 'application/json', responseSchema: schema, temperature: 0.8 },
-  })
-  const text = textOf(data)
+  }
+  const text = onPartial ? await generateContentStream('lite', body, onPartial) : textOf(await generateContent('lite', body))
   try {
     return JSON.parse(text) as T
   } catch {
@@ -241,6 +427,7 @@ export async function chatJSONWithSearch<T>(
   system: string,
   turns: ChatTurn[],
   schema: object,
+  onPartial?: (jsonSoFar: string) => void,
 ): Promise<{ result: T; sources: WebSource[] }> {
   const research = await searchText(
     `${system}\n\nYou have Google Search. Use it for anything current or factual (recipes, nutrition facts, product details, trends). Answer the user's last message fully in plain text; include complete recipe ingredients and steps or outfit details if they apply.`,
@@ -257,5 +444,5 @@ export async function chatJSONWithSearch<T>(
       ],
     },
   ]
-  return { result: await chatJSON<T>(system, merged, schema), sources: research.sources }
+  return { result: await chatJSON<T>(system, merged, schema, onPartial), sources: research.sources }
 }

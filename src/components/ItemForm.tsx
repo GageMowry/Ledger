@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ClothingCategory, ClothingItem } from '../db'
+import { warmUp } from '../gemini'
 import { CATEGORIES, makeThumb, type ItemInput } from '../closet'
 import { describeItem } from '../closetAI'
 import ClothingThumb from './ClothingThumb'
@@ -33,6 +34,9 @@ export default function ItemForm({
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const ranAuto = useRef(false)
+
+  // Connect to Gemini while the form is open, so Generate starts sooner.
+  useEffect(() => warmUp(), [])
 
   async function generate(withPhoto = photo) {
     setBusy('ai')

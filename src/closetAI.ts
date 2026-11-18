@@ -1,5 +1,5 @@
 import { db, getSetting, setSetting, type ClothingCategory, type ClothingItem, type Outfit } from './db'
-import { chatJSON, chatJSONWithSearch, type ChatTurn, type GeminiPart, type WebSource } from './gemini'
+import { chatJSON, chatJSONWithSearch, partialStringField, type ChatTurn, type GeminiPart, type WebSource } from './gemini'
 import { blobToBase64, bodyContext, describeItemLine } from './closet'
 
 const STR = { type: 'STRING' }
@@ -125,6 +125,8 @@ export interface ClosetMessage {
 
 const STYLIST_SCHEMA = {
   type: 'OBJECT',
+  // "reply" is written first so it can be shown while the outfit is still streaming.
+  propertyOrdering: ['reply', 'outfit'],
   properties: {
     reply: { ...STR, description: 'Short, friendly answer (1-3 sentences). Ask follow-ups here when needed.' },
     outfit: {
@@ -190,19 +192,34 @@ export function toTurns(messages: ClosetMessage[]): ChatTurn[] {
 export async function askStylist(
   history: ClosetMessage[],
   prompt: string,
-  opts?: { search?: boolean },
+  opts?: {
+    search?: boolean
+    /** Gets the reply sentence as it is being written. */
+    onReply?: (soFar: string) => void
+    /** The closet, if the caller already has it loaded (saves re-reading every photo). */
+    items?: ClothingItem[]
+  },
 ): Promise<{ reply: StylistReply; sources?: WebSource[] }> {
-  const [items, outfits] = await Promise.all([db.clothes.toArray(), db.outfits.toArray()])
-  const turns = [...toTurns(history.slice(-16)), { role: 'user' as const, parts: [{ text: prompt }] }]
+  const [items, outfits] = await Promise.all([opts?.items ?? db.clothes.toArray(), db.outfits.toArray()])
+  const past = toTurns(history.slice(-16))
+  while (past[0]?.role === 'model') past.shift() // a conversation sent to Gemini starts with the user
+  const turns = [...past, { role: 'user' as const, parts: [{ text: prompt }] }]
   const system = await stylistSystemPrompt(items, outfits)
+  const onReply = opts?.onReply
+  const onPartial = onReply
+    ? (json: string) => {
+        const soFar = partialStringField(json, 'reply')
+        if (soFar) onReply(soFar)
+      }
+    : undefined
   let r: StylistReply
   let sources: WebSource[] | undefined
   if (opts?.search) {
-    const out = await chatJSONWithSearch<StylistReply>(system, turns, STYLIST_SCHEMA)
+    const out = await chatJSONWithSearch<StylistReply>(system, turns, STYLIST_SCHEMA, onPartial)
     r = out.result
     sources = out.sources
   } else {
-    r = await chatJSON<StylistReply>(system, turns, STYLIST_SCHEMA)
+    r = await chatJSON<StylistReply>(system, turns, STYLIST_SCHEMA, onPartial)
   }
   if (typeof r?.reply !== 'string') throw new Error('Gemini sent a reply in an unexpected format. Try again.')
   if (r.outfit) {

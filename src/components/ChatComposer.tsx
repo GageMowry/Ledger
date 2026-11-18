@@ -1,4 +1,6 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react'
+import { warmUp } from '../gemini'
+import { WebToggle } from './WebSearch'
 
 const toBottom = (smooth = true) =>
   window.scrollTo({ top: document.documentElement.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
@@ -34,9 +36,8 @@ export function useChatScroll(messages: { id: string; role: string }[] | null, b
   }, [messages, busy])
 }
 
-/** Keeps a scrolled-to message clear of the sticky header. */
-export const MSG_SCROLL_MARGIN = 'scroll-mt-[calc(4rem+env(safe-area-inset-top))]'
-import { WebToggle } from './WebSearch'
+/** Keeps a scrolled-to message clear of the sticky header and, when it's showing, the section ribbon. */
+export const MSG_SCROLL_MARGIN = 'scroll-mt-[calc(4rem+env(safe-area-inset-top)+var(--ribbon-offset,0px))]'
 
 function NewChatIcon({ className = '' }: { className?: string }) {
   return (
@@ -109,4 +110,107 @@ export default function ChatComposer({
 /** Space at the end of a message list so the last message clears the fixed composer. */
 export function ComposerSpacer() {
   return <div aria-hidden="true" style={{ height: 'calc(var(--composer-h, 120px) + 0.5rem)' }} />
+}
+
+export interface ChatInputHandle {
+  /** What's currently typed. */
+  getText: () => string
+  clear: () => void
+}
+
+/**
+ * The message box and Send button. It keeps the typed text in its own state,
+ * so typing redraws only this small row and never the conversation above it.
+ */
+export function ChatInput({
+  ref,
+  placeholder,
+  label,
+  busy,
+  onSend,
+  leading,
+}: {
+  ref?: Ref<ChatInputHandle>
+  placeholder: string
+  label: string
+  busy: boolean
+  onSend: (text: string) => void
+  /** Optional control shown left of the text box (e.g. the camera button). */
+  leading?: ReactNode
+}) {
+  const [text, setText] = useState('')
+  const box = useRef<HTMLTextAreaElement>(null)
+
+  const clear = () => {
+    setText('')
+    if (box.current) box.current.style.height = 'auto'
+  }
+  useImperativeHandle(ref, () => ({ getText: () => box.current?.value ?? '', clear }), [])
+
+  const submit = () => {
+    const t = text.trim()
+    if (!t || busy) return
+    onSend(t)
+    clear()
+  }
+
+  return (
+    <form
+      className="flex items-end gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        submit()
+      }}
+    >
+      {leading}
+      <textarea
+        ref={box}
+        rows={1}
+        className="field max-h-32 min-w-0 flex-1 resize-none"
+        placeholder={placeholder}
+        aria-label={label}
+        value={text}
+        onFocus={warmUp}
+        onChange={(e) => {
+          setText(e.target.value)
+          e.target.style.height = 'auto'
+          e.target.style.height = `${e.target.scrollHeight}px`
+        }}
+        onKeyDown={(e) => {
+          // Return sends on a computer; on a phone it adds a line and Send sends.
+          if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) {
+            e.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <button type="submit" className="btn-primary h-[46px] shrink-0" disabled={busy || !text.trim()}>
+        Send
+      </button>
+    </form>
+  )
+}
+
+/**
+ * Shown while the AI is working: the reply so far if any has streamed in,
+ * followed by animated dots and an optional status label.
+ */
+export function TypingBubble({ text, label }: { text?: string | null; label?: string }) {
+  return (
+    <div
+      className="inline-block max-w-full rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm break-words shadow-sm ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-800"
+      role="status"
+      aria-label={label ?? 'Thinking'}
+    >
+      {text && <p className="mb-2">{text}</p>}
+      <span className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+        <span className="flex items-center gap-1.5" aria-hidden="true">
+          {[0, 1, 2].map((i) => (
+            <span key={i} className="h-2 w-2 animate-bounce rounded-full bg-slate-400" style={{ animationDelay: `${i * 0.15}s` }} />
+          ))}
+        </span>
+        {label && <span>{label}…</span>}
+      </span>
+    </div>
+  )
 }
